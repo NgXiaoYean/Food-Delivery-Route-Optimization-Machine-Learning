@@ -1,0 +1,21 @@
+Column,Data Type,Non-Null Count,Missing Count,Unique Values
+ID,object,45584,0,45584
+Delivery_person_ID,object,45584,0,1320
+Delivery_person_Age,float64,43730,1854,22
+Delivery_person_Ratings,float64,43676,1908,28
+Restaurant_latitude,float64,45584,0,657
+Restaurant_longitude,float64,45584,0,518
+Delivery_location_latitude,float64,45584,0,4373
+Delivery_location_longitude,float64,45584,0,4373
+Order_Date,object,45584,0,44
+Time_Orderd,object,43853,1731,176
+Time_Order_picked,object,45584,0,193
+Weather_conditions,object,44968,616,6
+Road_traffic_density,object,44983,601,4
+Vehicle_condition,int64,45584,0,4
+Type_of_order,object,45584,0,4
+Type_of_vehicle,object,45584,0,4
+multiple_deliveries,float64,44591,993,4
+Festival,object,45356,228,2
+City,object,44384,1200,3
+Time_taken (min),int64,45584,0,45
