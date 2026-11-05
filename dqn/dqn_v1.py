@@ -1,16 +1,8 @@
-"""
-DQN agent for the food-delivery environment.
-Install:  pip install torch matplotlib
-Run:      py dqn_agent.py
 
-Why DQN here? The state is a vector (position, destination, traffic, weather, ...),
-too big for a Q-table to handle well, so a neural network approximates Q(state, action).
-Three ideas make DQN stable (explain each in your report):
-  1. Experience replay  -> learn from random past transitions, not consecutive (correlated) ones.
-  2. Target network     -> a slowly-updated copy of the network gives steady learning targets.
-  3. Epsilon-greedy     -> explore early (random moves), exploit later (best-known move).
-"""
 import random
+
+import sys
+from pathlib import Path
 from collections import deque
 
 import matplotlib.pyplot as plt
@@ -20,8 +12,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from shared import evaluate_policy, split_orders
 from env import DeliveryEnv, load_orders
+
+RESULT_DIR = Path("./dqn/result")
+RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 SEED = 42
 random.seed(SEED)
@@ -154,10 +150,10 @@ if __name__ == "__main__":
     plt.plot(smooth)
     plt.xlabel("Training episode"); plt.ylabel("Reward (100-episode average)")
     plt.title("DQN learning curve")
-    plt.savefig("dqn_learning_curve.png", dpi=150, bbox_inches="tight")
+    plt.savefig(RESULT_DIR / "dqn_learning_curve_v1.png", dpi=150, bbox_inches="tight")
 
     # Final evaluation on UNSEEN test orders, same seeds as all other agents
     result = evaluate_policy(dqn_policy(net), test_env, episodes=500, name="DQN")
     print(result)
-    pd.DataFrame([result]).to_csv("dqn_results.csv", index=False)
-    torch.save(net.state_dict(), "dqn_model.pt")
+    pd.DataFrame([result]).to_csv(RESULT_DIR / "dqn_results_v1.csv", index=False)
+    torch.save(net.state_dict(), RESULT_DIR / "dqn_model_v1.pt")
