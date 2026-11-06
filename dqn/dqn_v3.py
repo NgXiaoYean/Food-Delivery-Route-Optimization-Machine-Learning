@@ -10,7 +10,9 @@ Traffic level is already in the state, so the network can learn that a hotspot c
 This needs NO change to env.py (the flags are read from env.hotspots), so teammates are unaffected.
 """
 import random
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import matplotlib.pyplot as plt
 import numpy as np
