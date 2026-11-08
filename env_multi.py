@@ -26,14 +26,15 @@ from env import DeliveryEnv, MINUTES_PER_STEP
 
 K_MAX = 3
 MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # up, down, left, right
-OBS_DIM_MULTI = 2 + 3 * K_MAX + 4            # 15 numbers
-OBS_DIM_MULTI_V3 = OBS_DIM_MULTI + 4         # + 4 neighbour-hotspot flags = 19
+OBS_DIM_MULTI = 2 + 4 * K_MAX + 4            # 18 numbers: position, 3 slots x (d_row, d_col, distance, active), 4 globals
+OBS_DIM_MULTI_V3 = OBS_DIM_MULTI + 4         # + 4 neighbour-hotspot flags = 22
 
 
 class MultiDeliveryEnv(DeliveryEnv):
-    def __init__(self, orders, grid_size=10, max_steps=100, map_seed=0, hotspot_frac=0.15, max_km=None, dynamic=False):
+    def __init__(self, orders, grid_size=10, max_steps=100, map_seed=0, hotspot_frac=0.15, max_km=None, dynamic=False, shaping=0.0, shaping_gamma=0.95):
         super().__init__(orders, grid_size, max_steps, map_seed, hotspot_frac)
         self.dynamic = dynamic  # True = a new order can appear MID-TRIP (use for testing re-planning)
+        self.shaping, self.shaping_gamma = shaping, shaping_gamma  # >0: potential-based shaping (training only)
         if max_km is not None:  # reuse the TRAIN distance scale for val/test envs (avoids a tiny scale mismatch)
             self.max_km = float(max_km)
         self.n_actions = 4
@@ -92,7 +93,14 @@ class MultiDeliveryEnv(DeliveryEnv):
         return self._obs(), {}
 
     # ------------------------------------------------------------------- step
+    def _phi(self):
+        """Potential = minus distance (in cells) to the nearest remaining customer; 0 when none are left."""
+        if not self.active:
+            return 0.0
+        return -self.shaping * (abs(self.dest[0] - self.pos[0]) + abs(self.dest[1] - self.pos[1]))
+
     def step(self, action):
+        phi_old = self._phi() if self.shaping else 0.0
         r, c = self.pos
         dr, dc = MOVES[int(action)]
         nr, nc = r + dr, c + dc
@@ -131,6 +139,8 @@ class MultiDeliveryEnv(DeliveryEnv):
         truncated = (not terminated) and self.steps >= self.max_steps
         if truncated:
             reward -= 20.0
+        if self.shaping:  # F = gamma*phi(s') - phi(s): helps learning, does not change the best policy
+            reward += self.shaping_gamma * (0.0 if terminated else self._phi()) - phi_old
 
         info = {"delivered": terminated, "n_delivered": sum(self.delivered_flags), "k": self.k,
                 "elapsed_min": self.elapsed_min, "steps": self.steps, "late_total": self.late_total,
@@ -149,9 +159,10 @@ class MultiDeliveryEnv(DeliveryEnv):
         slots = self._slots()
         for j in range(K_MAX):
             if j < len(slots):
-                v += [(slots[j][0] - self.pos[0]) / n, (slots[j][1] - self.pos[1]) / n, 1.0]
+                drow, dcol = slots[j][0] - self.pos[0], slots[j][1] - self.pos[1]
+                v += [drow / n, dcol / n, (abs(drow) + abs(dcol)) / (2 * n), 1.0]
             else:
-                v += [0.0, 0.0, 0.0]
+                v += [0.0, 0.0, 0.0, 0.0]
         v += [self.traffic / 3, self.weather / 3, len(slots) / K_MAX, 1 - self.steps / self.max_steps]
         return np.array(v, dtype=np.float32)
 
@@ -175,6 +186,33 @@ class MultiDeliveryEnv(DeliveryEnv):
         return (sgn(dr - r), sgn(dc - c), int(abs(dr - r) >= abs(dc - c)), int(self.traffic >= 2),
                 len(self.active), *nb)
 
+
+
+# ============================================================ shared helpers (whole team)
+def split_orders_3way(orders, val_frac=0.15, test_frac=0.15, seed=42):
+    """Train / validation / test split of the cleaned orders (default 70/15/15, fixed seed).
+    Tune on VALIDATION (seed_offset=1000); touch TEST once at the end (seed_offset=0)."""
+    if not (0 < val_frac < 1 and 0 < test_frac < 1 and val_frac + test_frac < 1):
+        raise ValueError("val_frac and test_frac must be in (0,1) and sum to less than 1.")
+    test = orders.sample(frac=test_frac, random_state=seed)
+    rest = orders.drop(test.index)
+    val = rest.sample(frac=val_frac / (1.0 - test_frac), random_state=seed)
+    train = rest.drop(val.index)
+    return train.reset_index(drop=True), val.reset_index(drop=True), test.reset_index(drop=True)
+
+
+def safe_argmax(q_values, env, prev_pos, wall_pen=10.0, back_pen=1.0):
+    """ONE action-selection rule for EVERY model: best Q-value, but never bump the map edge
+    and discourage immediate backtracking. Use it for all agents so the comparison is fair."""
+    q = np.array(q_values, dtype=np.float64).copy()
+    r, c = env.pos
+    for a, (dr, dc) in enumerate(MOVES):
+        nr, nc = r + dr, c + dc
+        if not (0 <= nr < env.n and 0 <= nc < env.n):
+            q[a] -= wall_pen
+        elif (nr, nc) == prev_pos:
+            q[a] -= back_pen
+    return int(np.argmax(q))
 
 # ============================================================ baselines (multi-order)
 def greedy_policy_multi(env):
@@ -226,12 +264,13 @@ def planner_policy_multi(env):
 
 
 # ============================================================ evaluation (multi-order)
-def evaluate_multi(policy_fn, env, episodes=500, name="agent", seed_offset=0):
+def evaluate_multi(policy_fn, env, episodes=500, name="agent", seed_offset=0, return_episodes=False):
     """Same seeds for every model (seed_offset+0 .. seed_offset+episodes-1).
     Use seed_offset=1000 on the VALIDATION env while tuning, seed_offset=0 on the TEST env once at the end.
     Success = ALL orders delivered before timeout."""
     wins, orders_total, orders_done, on_time = 0, 0, 0, 0
     rewards, steps, minutes, hot_counts, late = [], [], [], [], []
+    ep_rows = []
     for ep in range(episodes):
         env.reset(seed=seed_offset + ep)
         done, ep_r, hot, info = False, 0.0, 0, {}
@@ -254,9 +293,11 @@ def evaluate_multi(policy_fn, env, episodes=500, name="agent", seed_offset=0):
         orders_done += info["n_delivered"]
         on_time += sum(1 for i, t in delivered_at.items() if t <= deadlines[i])
         rewards.append(ep_r); steps.append(info["steps"]); hot_counts.append(hot); late.append(info["late_total"])
+        ep_rows.append({"seed": seed_offset + ep, "k": env.k, "reward": ep_r, "steps": info["steps"],
+                        "delivered_all": int(info["delivered"]), "late_min": info["late_total"], "hotspot_steps": hot})
         if info["delivered"]:
             minutes.append(info["elapsed_min"])
-    return {
+    summary = {
         "agent": name,
         "success_rate": wins / episodes,
         "orders_delivered_rate": orders_done / orders_total,
@@ -268,6 +309,10 @@ def evaluate_multi(policy_fn, env, episodes=500, name="agent", seed_offset=0):
         "avg_late_min": float(np.mean(late)),
         "avg_hotspot_steps": float(np.mean(hot_counts)),
     }
+    if return_episodes:
+        import pandas as pd
+        return summary, pd.DataFrame(ep_rows)
+    return summary
 
 
 if __name__ == "__main__":
