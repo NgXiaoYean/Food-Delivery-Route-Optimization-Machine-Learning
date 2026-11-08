@@ -31,8 +31,9 @@ OBS_DIM_MULTI_V3 = OBS_DIM_MULTI + 4         # + 4 neighbour-hotspot flags = 19
 
 
 class MultiDeliveryEnv(DeliveryEnv):
-    def __init__(self, orders, grid_size=10, max_steps=100, map_seed=0, hotspot_frac=0.15, max_km=None):
+    def __init__(self, orders, grid_size=10, max_steps=100, map_seed=0, hotspot_frac=0.15, max_km=None, dynamic=False):
         super().__init__(orders, grid_size, max_steps, map_seed, hotspot_frac)
+        self.dynamic = dynamic  # True = a new order can appear MID-TRIP (use for testing re-planning)
         if max_km is not None:  # reuse the TRAIN distance scale for val/test envs (avoids a tiny scale mismatch)
             self.max_km = float(max_km)
         self.n_actions = 4
@@ -83,6 +84,11 @@ class MultiDeliveryEnv(DeliveryEnv):
         self.benchmark_min = max(self.deadlines)  # kept so old metrics that read it do not crash
         self.delivered_flags = [False] * self.k
         self.steps, self.elapsed_min, self.late_total = 0, 0.0, 0.0
+        # Dynamic mode: one extra order is placed on the rider's phone at a random early step (3..8)
+        self.arrival_step, self._late_row = None, None
+        if self.dynamic and self.k < K_MAX:
+            self.arrival_step = int(self.rng.integers(3, 9))
+            self._late_row = self.orders.iloc[int(self.rng.integers(len(self.orders)))]
         return self._obs(), {}
 
     # ------------------------------------------------------------------- step
@@ -113,6 +119,13 @@ class MultiDeliveryEnv(DeliveryEnv):
                 late = max(0.0, self.elapsed_min - self.deadlines[i])
                 self.late_total += late
                 reward += 50.0 - 0.5 * late
+
+        if self.arrival_step == self.steps and self._late_row is not None:  # new order arrives
+            self.dests.append(self._place_dest(self._late_row["distance_km"], set(self.dests)))
+            self.deadlines.append(self.elapsed_min + float(self._late_row["time_taken"]))  # clock starts on arrival
+            self.delivered_flags.append(False)
+            self.k += 1
+            self._late_row = None
 
         terminated = all(self.delivered_flags)
         truncated = (not terminated) and self.steps >= self.max_steps
@@ -221,7 +234,6 @@ def evaluate_multi(policy_fn, env, episodes=500, name="agent", seed_offset=0):
     rewards, steps, minutes, hot_counts, late = [], [], [], [], []
     for ep in range(episodes):
         env.reset(seed=seed_offset + ep)
-        deadlines = list(env.deadlines)
         done, ep_r, hot, info = False, 0.0, 0, {}
         delivered_at = {}
         while not done:
@@ -236,6 +248,7 @@ def evaluate_multi(policy_fn, env, episodes=500, name="agent", seed_offset=0):
                 if a and not b:
                     delivered_at[i] = env.elapsed_min
             done = term or trunc
+        deadlines = env.deadlines  # read after the episode: dynamic mode may have added an order
         wins += int(info["delivered"])
         orders_total += env.k
         orders_done += info["n_delivered"]
@@ -271,5 +284,13 @@ if __name__ == "__main__":
         evaluate_multi(lambda e: int(e.rng.integers(4)), env, name="Random"),
         evaluate_multi(greedy_policy_multi, env, name="Greedy (nearest first)"),
         evaluate_multi(planner_policy_multi, env, name="Planner (best order + Dijkstra)"),
+    ]
+    print(pd.DataFrame(rows).round(3).to_string(index=False))
+
+    print("\nDYNAMIC: a new order arrives mid-trip (agent must re-plan)")
+    denv = MultiDeliveryEnv(test_orders, dynamic=True)
+    rows = [
+        evaluate_multi(greedy_policy_multi, denv, name="Greedy (nearest first)"),
+        evaluate_multi(planner_policy_multi, denv, name="Planner (re-plans every step)"),
     ]
     print(pd.DataFrame(rows).round(3).to_string(index=False))
