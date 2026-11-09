@@ -6,3 +6,5 @@ matplotlib
 seaborn
 torch
 streamlit
+folium
+streamlit-folium
