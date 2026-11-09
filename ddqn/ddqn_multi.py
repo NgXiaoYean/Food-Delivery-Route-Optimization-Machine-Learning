@@ -370,10 +370,13 @@ def stage_b(ctx, out_dir, base, n_configs, arch, resume=False):
 
 
 # ----------------------------------------------------------------------------- Stage C
-def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False):
+def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False, tag="", use_default=False):
     print("\n" + "=" * 78 + f"\nSTAGE C (final): {n_seeds} seeds, scored ONCE on the TEST set\n" + "=" * 78)
     cfg_path = out_dir / "best_config.json"
-    if cfg_path.exists():
+    if use_default:
+        best = {**DEFAULT_MODEL, "dueling": arch == "dueling", "double": True}
+        print(f"Using the DEFAULT settings (no search): {best}")
+    elif cfg_path.exists():
         best = json.loads(cfg_path.read_text())
         print(f"Using the Stage B winner: {best}")
     else:
@@ -386,7 +389,7 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False):
     seed_rows, episode_frames = [], []
     for s in range(n_seeds):
         cfg = {**base, **best, "seed": s}
-        model_path = out_dir / f"ddqn_multi_seed{s}.pt"
+        model_path = out_dir / f"ddqn_multi{tag}_seed{s}.pt"
         if resume and model_path.exists():
             print(f"\n[C] seed {s}: reusing saved model {model_path.name}")
             net, _ = load_model(model_path)
@@ -401,24 +404,24 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False):
             print(f"    {scen:<20} reward {res['avg_reward']:7.2f} | all delivered {res['success_rate']:.1%} | hotspots {res['avg_hotspot_steps']:.2f}")
 
     per_seed = pd.DataFrame(seed_rows)
-    per_seed.to_csv(out_dir / "stageC_per_seed_test.csv", index=False)
+    per_seed.to_csv(out_dir / f"stageC{tag}_per_seed_test.csv", index=False)
     metrics = ["success_rate", "on_time_order_rate", "avg_reward", "avg_late_min", "avg_hotspot_steps"]
     summary = per_seed.groupby("scenario")[metrics].agg(["mean", "std"]).round(3)
-    summary.to_csv(out_dir / "stageC_summary_mean_std.csv")
+    summary.to_csv(out_dir / f"stageC{tag}_summary_mean_std.csv")
     print("\n=== mean and std over seeds (TEST set) ===\n" + summary.to_string())
 
     episodes = pd.concat(episode_frames, ignore_index=True)
-    episodes.to_csv(out_dir / "stageC_episode_details.csv", index=False)   # use for bootstrap CIs / error analysis
+    episodes.to_csv(out_dir / f"stageC{tag}_episode_details.csv", index=False)   # use for bootstrap CIs / error analysis
     by_k = (episodes[episodes["scenario"] == "normal test"].groupby("k")[["reward", "late_min", "hotspot_steps"]]
             .mean().round(2).assign(trips=episodes[episodes["scenario"] == "normal test"].groupby("k").size()))
-    by_k.to_csv(out_dir / "stageC_by_number_of_customers.csv")
+    by_k.to_csv(out_dir / f"stageC{tag}_by_number_of_customers.csv")
     print("\n=== normal test, by number of customers on the trip (mean over seeds) ===\n" + by_k.to_string())
 
     base_rows = []   # reference lines for every scenario
     for scen, env in scenarios.items():
         for name, pol in [("Greedy (nearest first)", greedy_policy_multi), ("Planner (oracle)", planner_policy_multi)]:
             base_rows.append({"scenario": scen, **evaluate_multi(pol, env, EVAL_EPISODES, name, 0)})
-    pd.DataFrame(base_rows).to_csv(out_dir / "stageC_baselines_test.csv", index=False)
+    pd.DataFrame(base_rows).to_csv(out_dir / f"stageC{tag}_baselines_test.csv", index=False)
     print("\n=== baselines on the same test trips ===\n" + pd.DataFrame(base_rows).round(3).to_string(index=False))
 
 
@@ -433,6 +436,9 @@ def main():
     ap.add_argument("--arch", choices=["dueling", "vanilla"], default="dueling",
                     help="architecture used in Stage B/C (pick the winner of Stage A)")
     ap.add_argument("--episodes", type=int, default=None, help="override training episodes")
+    ap.add_argument("--tag", default="", help="Stage C: suffix for output files, e.g. _default")
+    ap.add_argument("--use-default-config", action="store_true",
+                    help="Stage C: use the untuned default settings instead of the Stage B winner (before/after comparison)")
     ap.add_argument("--resume", action="store_true",
                     help="Stage B: skip configs already in the CSV. Stage C: reuse saved seed models.")
     ap.add_argument("--shaping", type=float, default=0.0,
@@ -462,7 +468,7 @@ def main():
     if args.stage in ("B", "all"):
         stage_b(ctx, out_dir, base, n_configs, args.arch, args.resume)
     if args.stage in ("C", "all"):
-        stage_c(ctx, out_dir, base, n_seeds, args.arch, args.resume)
+        stage_c(ctx, out_dir, base, n_seeds, args.arch, args.resume, args.tag, args.use_default_config)
 
 
 if __name__ == "__main__":
