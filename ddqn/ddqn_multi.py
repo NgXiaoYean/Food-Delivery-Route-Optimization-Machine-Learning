@@ -18,6 +18,7 @@ Usage:
     python ddqn/ddqn_multi.py --stage A
     python ddqn/ddqn_multi.py --stage B --n-configs 8
     python ddqn/ddqn_multi.py --stage C --seeds 5
+    add --resume to continue an interrupted Stage B / Stage C instead of starting over
     python ddqn/ddqn_multi.py                    # all three stages, in order
 
 Everything is saved as CSV / PNG / .pt in ddqn/result_multi/ so you can drop the numbers straight into the report.
@@ -212,6 +213,11 @@ def train_agent(env, cfg, verbose=False):
 
         ep_rewards.append(ep_r)
         ep_success.append(float(delivered))
+        # Stage B only: stop a config that is clearly not learning (it would run ~100 steps per episode for hours)
+        if cfg.get("abort_if_failing") and ep + 1 == cfg["eps_decay_episodes"] + 500 and np.mean(ep_success[-250:]) < 0.5:
+            print(f"    [ABORT] only {np.mean(ep_success[-250:]):.0%} of recent trips fully delivered at episode {ep + 1}; "
+                  "stopping this config early (counted as a poor config).", flush=True)
+            break
         if verbose and (ep + 1) % max(1, cfg["episodes"] // 8) == 0:
             print(f"    ep {ep + 1:5d} | eps={eps:.2f} | avg reward (last 250)={np.mean(ep_rewards[-250:]):7.1f} "
                   f"| all-delivered={np.mean(ep_success[-250:]):.0%}")
@@ -322,17 +328,25 @@ def sample_configs(n, seed=0):
     return out
 
 
-def stage_b(ctx, out_dir, base, n_configs, arch):
+def stage_b(ctx, out_dir, base, n_configs, arch, resume=False):
     print("\n" + "=" * 78 + f"\nSTAGE B (Part B): random search, {n_configs} configs, arch={arch}  [VALIDATION set only]\n" + "=" * 78)
     arch_flags = dict(dueling=(arch == "dueling"), double=True)
     rows, hp_by_id = [], {}
+    csv_path = out_dir / "stageB_search_val.csv"
+    done_ids = set()
+    if resume and csv_path.exists():
+        rows = pd.read_csv(csv_path).to_dict("records")
+        done_ids = {int(r["config_id"]) for r in rows}
+        print(f"[resume] {len(done_ids)} config(s) already finished: {sorted(done_ids)}")
     for i, hp in enumerate(sample_configs(n_configs), 1):
         hp_by_id[i] = hp   # keep the ORIGINAL python values (pandas would turn ints into floats)
-        cfg = {**base, **hp, **arch_flags}
+        if i in done_ids:
+            continue
+        cfg = {**base, **hp, **arch_flags, "abort_if_failing": True}
         t0 = time.time()
         print(f"\n[B {i}/{n_configs}] {hp}")
         try:
-            net, _, _ = train_agent(ctx["factory"](), cfg, verbose=False)
+            net, _, _ = train_agent(ctx["factory"](), cfg, verbose=True)   # live progress lines
             res = evaluate_multi(make_policy(net), ctx["val_env"], EVAL_EPISODES, f"cfg{i}", VAL_SEED_OFFSET)
         except Exception as exc:   # one bad config must not kill a multi-hour search
             print(f"    [WARN] config {i} failed: {exc}")
@@ -342,7 +356,7 @@ def stage_b(ctx, out_dir, base, n_configs, arch):
         rows.append(row)
         print(f"    -> val reward {res['avg_reward']:.2f} | all delivered {res['success_rate']:.1%} | "
               f"hotspots {res['avg_hotspot_steps']:.2f} | {row['train_time_s']}s")
-        pd.DataFrame(rows).to_csv(out_dir / "stageB_search_val.csv", index=False)   # saved after every config
+        pd.DataFrame(rows).to_csv(csv_path, index=False)   # saved after every config
 
     if not rows:
         raise RuntimeError("Every search configuration failed; nothing to choose from.")
@@ -356,7 +370,7 @@ def stage_b(ctx, out_dir, base, n_configs, arch):
 
 
 # ----------------------------------------------------------------------------- Stage C
-def stage_c(ctx, out_dir, base, n_seeds, arch):
+def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False):
     print("\n" + "=" * 78 + f"\nSTAGE C (final): {n_seeds} seeds, scored ONCE on the TEST set\n" + "=" * 78)
     cfg_path = out_dir / "best_config.json"
     if cfg_path.exists():
@@ -372,9 +386,14 @@ def stage_c(ctx, out_dir, base, n_seeds, arch):
     seed_rows, episode_frames = [], []
     for s in range(n_seeds):
         cfg = {**base, **best, "seed": s}
-        print(f"\n[C] seed {s}: training ...")
-        net, _, _ = train_agent(ctx["factory"](), cfg, verbose=False)
-        save_model(net, cfg, out_dir / f"ddqn_multi_seed{s}.pt")
+        model_path = out_dir / f"ddqn_multi_seed{s}.pt"
+        if resume and model_path.exists():
+            print(f"\n[C] seed {s}: reusing saved model {model_path.name}")
+            net, _ = load_model(model_path)
+        else:
+            print(f"\n[C] seed {s}: training ...", flush=True)
+            net, _, _ = train_agent(ctx["factory"](), cfg, verbose=True)
+            save_model(net, cfg, model_path)
         for scen, env in scenarios.items():
             res, eps_df = evaluate_multi(make_policy(net), env, EVAL_EPISODES, f"D3QN seed {s}", 0, return_episodes=True)
             seed_rows.append({"scenario": scen, "train_seed": s, **{k: v for k, v in res.items() if k != "agent"}})
@@ -414,6 +433,8 @@ def main():
     ap.add_argument("--arch", choices=["dueling", "vanilla"], default="dueling",
                     help="architecture used in Stage B/C (pick the winner of Stage A)")
     ap.add_argument("--episodes", type=int, default=None, help="override training episodes")
+    ap.add_argument("--resume", action="store_true",
+                    help="Stage B: skip configs already in the CSV. Stage C: reuse saved seed models.")
     ap.add_argument("--shaping", type=float, default=0.0,
                     help="training-only distance bonus (try 1.0); 0 = off. Val/test are never shaped.")
     args = ap.parse_args()
@@ -439,9 +460,9 @@ def main():
     if args.stage in ("A", "all"):
         stage_a(ctx, out_dir, base)
     if args.stage in ("B", "all"):
-        stage_b(ctx, out_dir, base, n_configs, args.arch)
+        stage_b(ctx, out_dir, base, n_configs, args.arch, args.resume)
     if args.stage in ("C", "all"):
-        stage_c(ctx, out_dir, base, n_seeds, args.arch)
+        stage_c(ctx, out_dir, base, n_seeds, args.arch, args.resume)
 
 
 if __name__ == "__main__":
