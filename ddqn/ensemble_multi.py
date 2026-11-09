@@ -1,5 +1,5 @@
 """
-Ensemble of the saved D3QN seed models + PAIRED BOOTSTRAP confidence intervals  (multi-order environment)
+Ensemble of the saved DDQN seed models + PAIRED BOOTSTRAP confidence intervals  (multi-order environment)
 =========================================================================================================
 Part B asks you to combine models and to check the combination fairly. This script:
   1. loads the models saved by Stage C (ddqn_multi_seed0.pt, seed1, ...),
@@ -65,7 +65,7 @@ def paired_bootstrap(diff, n_boot, rng):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Ensemble of saved D3QN seeds + paired bootstrap CIs")
+    ap = argparse.ArgumentParser(description="Ensemble of saved DDQN seeds + paired bootstrap CIs")
     ap.add_argument("--result-dir", default=str(BASE_DIR / "ddqn" / "result_multi"))
     ap.add_argument("--tag", default="", help="file suffix used when the models were saved (e.g. _default)")
     ap.add_argument("--episodes", type=int, default=500, help="test trips per scenario")
@@ -91,18 +91,18 @@ def main():
         print(f"\n--- scenario: {scen} ---")
         per_trip = {}   # model name -> DataFrame of per-trip results, sorted by trip seed
         policies = {"Greedy": greedy_policy_multi, "Planner": planner_policy_multi,
-                    "D3QN ensemble": make_ensemble_policy(nets)}
+                    "DDQN ensemble": make_ensemble_policy(nets)}
         for i, net in enumerate(nets):
-            policies[f"D3QN single seed {i}"] = dm.make_policy(net)
+            policies[f"DDQN single seed {i}"] = dm.make_policy(net)
         for name, pol in policies.items():
             res, df = evaluate_multi(pol, env, args.episodes, name, 0, return_episodes=True)
             per_trip[name] = df.sort_values("seed").reset_index(drop=True)
             summary_rows.append({"scenario": scen, "model": name, **{k: v for k, v in res.items() if k != "agent"}})
             print(f"  {name:<22} reward {res['avg_reward']:7.2f} | delivered {res['success_rate']:.1%} | hotspots {res['avg_hotspot_steps']:.2f}")
 
-        single_names = [n for n in per_trip if n.startswith("D3QN single")]
+        single_names = [n for n in per_trip if n.startswith("DDQN single")]
         singles = {m: np.mean([per_trip[n][m].to_numpy() for n in single_names], axis=0) for m in METRICS}  # average single seed, per trip
-        ens = {m: per_trip["D3QN ensemble"][m].to_numpy() for m in METRICS}
+        ens = {m: per_trip["DDQN ensemble"][m].to_numpy() for m in METRICS}
         greedy = {m: per_trip["Greedy"][m].to_numpy() for m in METRICS}
         planner = {m: per_trip["Planner"][m].to_numpy() for m in METRICS}
 
@@ -121,8 +121,8 @@ def main():
                                   "ci_excludes_zero": bool(lo > 0 or hi < 0)})
         # data for the figure: mean reward with a bootstrap CI for each headline model
         plot_data[scen] = {}
-        for label, arr in [("Greedy", greedy["reward"]), ("D3QN (avg single seed)", singles["reward"]),
-                           ("D3QN ensemble", ens["reward"]), ("Planner", planner["reward"])]:
+        for label, arr in [("Greedy", greedy["reward"]), ("DDQN (avg single seed)", singles["reward"]),
+                           ("DDQN ensemble", ens["reward"]), ("Planner", planner["reward"])]:
             mean, lo, hi = paired_bootstrap(arr, args.n_bootstrap, rng)
             plot_data[scen][label] = (mean, mean - lo, hi - mean)
 
@@ -136,7 +136,7 @@ def main():
     print(diffs[diffs["metric"] == "hotspot_steps"].drop(columns="metric").to_string(index=False))
 
     # figure: reward per scenario, with 95% CI
-    labels = ["Greedy", "D3QN (avg single seed)", "D3QN ensemble", "Planner"]
+    labels = ["Greedy", "DDQN (avg single seed)", "DDQN ensemble", "Planner"]
     colours = ["#9a9a9a", "#7fb2e5", "#1f6fd1", "#555555"]
     fig, ax = plt.subplots(figsize=(10, 4.8))
     width = 0.2
