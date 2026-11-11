@@ -1,0 +1,48 @@
+stage,scenario,who,wall_pen,back_pen,reward,delivered_all,filter,hotspot_steps
+validation sweep,normal,Ensemble,10.0,0.0,55.057,1.0,,
+validation sweep,normal,Ensemble,10.0,0.25,55.027,1.0,,
+validation sweep,normal,Ensemble,10.0,0.5,54.97,1.0,,
+validation sweep,normal,Ensemble,10.0,1.0,54.914,1.0,,
+validation sweep,normal,Ensemble,10.0,2.0,54.607,1.0,,
+test,normal,Single seed 0,0.0,0.0,54.24,0.996,No filter,0.882
+test,normal,Single seed 1,0.0,0.0,51.88,0.996,No filter,0.982
+test,normal,Ensemble,0.0,0.0,55.456,1.0,No filter,0.844
+test,normal,Single seed 0,10.0,0.0,54.856,0.998,Wall rule only,0.886
+test,normal,Single seed 1,10.0,0.0,52.351,0.996,Wall rule only,0.984
+test,normal,Ensemble,10.0,0.0,55.456,1.0,Wall rule only,0.844
+test,normal,Single seed 0,10.0,1.0,54.774,1.0,Wall + backtrack 1.0 (ours),0.922
+test,normal,Single seed 1,10.0,1.0,54.446,1.0,Wall + backtrack 1.0 (ours),1.018
+test,normal,Ensemble,10.0,1.0,55.33,1.0,Wall + backtrack 1.0 (ours),0.88
+test,normal,Single seed 0,10.0,0.0,54.856,0.998,Wall + backtrack 0.0 (validation-best),0.886
+test,normal,Single seed 1,10.0,0.0,52.351,0.996,Wall + backtrack 0.0 (validation-best),0.984
+test,normal,Ensemble,10.0,0.0,55.456,1.0,Wall + backtrack 0.0 (validation-best),0.844
+test,normal,Greedy,,,50.884,1.0,-,1.848
+test,normal,Planner,,,56.22,1.0,-,0.616
+test,new order mid-trip,Single seed 0,0.0,0.0,65.046,0.96,No filter,1.36
+test,new order mid-trip,Single seed 1,0.0,0.0,65.319,0.976,No filter,1.496
+test,new order mid-trip,Ensemble,0.0,0.0,72.65,0.992,No filter,1.318
+test,new order mid-trip,Single seed 0,10.0,0.0,70.596,0.974,Wall rule only,1.384
+test,new order mid-trip,Single seed 1,10.0,0.0,70.438,0.986,Wall rule only,1.452
+test,new order mid-trip,Ensemble,10.0,0.0,73.331,0.99,Wall rule only,1.322
+test,new order mid-trip,Single seed 0,10.0,1.0,72.011,0.988,Wall + backtrack 1.0 (ours),1.476
+test,new order mid-trip,Single seed 1,10.0,1.0,73.95,0.998,Wall + backtrack 1.0 (ours),1.542
+test,new order mid-trip,Ensemble,10.0,1.0,75.064,1.0,Wall + backtrack 1.0 (ours),1.406
+test,new order mid-trip,Single seed 0,10.0,0.0,70.596,0.974,Wall + backtrack 0.0 (validation-best),1.384
+test,new order mid-trip,Single seed 1,10.0,0.0,70.438,0.986,Wall + backtrack 0.0 (validation-best),1.452
+test,new order mid-trip,Ensemble,10.0,0.0,73.331,0.99,Wall + backtrack 0.0 (validation-best),1.322
+test,new order mid-trip,Greedy,,,70.022,1.0,-,2.734
+test,new order mid-trip,Planner,,,77.227,1.0,-,1.006
+test,unseen map,Single seed 0,0.0,0.0,55.465,0.998,No filter,0.684
+test,unseen map,Single seed 1,0.0,0.0,52.492,0.994,No filter,0.786
+test,unseen map,Ensemble,0.0,0.0,56.156,1.0,No filter,0.652
+test,unseen map,Single seed 0,10.0,0.0,55.816,1.0,Wall rule only,0.686
+test,unseen map,Single seed 1,10.0,0.0,52.806,0.994,Wall rule only,0.788
+test,unseen map,Ensemble,10.0,0.0,56.156,1.0,Wall rule only,0.652
+test,unseen map,Single seed 0,10.0,1.0,55.594,1.0,Wall + backtrack 1.0 (ours),0.712
+test,unseen map,Single seed 1,10.0,1.0,55.188,1.0,Wall + backtrack 1.0 (ours),0.802
+test,unseen map,Ensemble,10.0,1.0,56.062,1.0,Wall + backtrack 1.0 (ours),0.674
+test,unseen map,Single seed 0,10.0,0.0,55.816,1.0,Wall + backtrack 0.0 (validation-best),0.686
+test,unseen map,Single seed 1,10.0,0.0,52.806,0.994,Wall + backtrack 0.0 (validation-best),0.788
+test,unseen map,Ensemble,10.0,0.0,56.156,1.0,Wall + backtrack 0.0 (validation-best),0.652
+test,unseen map,Greedy,,,51.575,1.0,-,1.636
+test,unseen map,Planner,,,56.997,1.0,-,0.388

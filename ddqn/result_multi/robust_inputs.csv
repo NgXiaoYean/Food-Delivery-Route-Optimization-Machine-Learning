@@ -1,0 +1,19 @@
+scenario,input_group,reward,reward_drop,delivered_all
+normal,Rider position,54.893,0.436,1.0
+normal,"Direction to customers (row, col offsets)",-173.104,228.433,0.2
+normal,Distance to customers,-50.791,106.12,0.644
+normal,Which customers are still active,55.362,-0.033,1.0
+normal,Traffic level,55.383,-0.054,1.0
+normal,Weather level,55.309,0.02,1.0
+normal,Share of orders left,55.301,0.029,1.0
+normal,Time left,55.291,0.039,1.0
+normal,Neighbour-congestion flags,52.238,3.091,1.0
+new order mid-trip,Rider position,74.081,0.983,0.996
+new order mid-trip,"Direction to customers (row, col offsets)",-188.877,263.942,0.086
+new order mid-trip,Distance to customers,-76.411,151.475,0.444
+new order mid-trip,Which customers are still active,75.666,-0.602,1.0
+new order mid-trip,Traffic level,74.613,0.452,0.998
+new order mid-trip,Weather level,75.069,-0.005,0.998
+new order mid-trip,Share of orders left,75.362,-0.298,1.0
+new order mid-trip,Time left,75.18,-0.115,1.0
+new order mid-trip,Neighbour-congestion flags,70.87,4.195,1.0
