@@ -25,14 +25,30 @@ import numpy as np
 from env import DeliveryEnv, MINUTES_PER_STEP
 
 K_MAX = 3
+# Scoring / timing rules. The DEFAULTS reproduce the original environment exactly; the sensitivity and
+# calibration experiments (ddqn/sensitivity_multi.py) change them one at a time.
+DEFAULT_RULES = dict(
+    c_traffic=0.3,    # move cost per traffic level
+    c_weather=0.2,    # move cost per weather level
+    m_traffic=0.25,   # extra minutes factor per traffic level
+    m_weather=0.15,   # extra minutes factor per weather level
+    hot_extra=1.0,    # fixed extra cost of entering a congested cell
+    hot_traffic=1.0,  # extra cost per traffic level inside a congested cell
+    hot_minutes=2.0,  # minutes multiplier inside a congested cell
+    late_w=0.5,       # penalty per late minute
+    deliver_bonus=50.0,
+    wall_pen=2.0,
+    timeout_pen=20.0,
+)
 MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # up, down, left, right
 OBS_DIM_MULTI = 2 + 4 * K_MAX + 4            # 18 numbers: position, 3 slots x (d_row, d_col, distance, active), 4 globals
 OBS_DIM_MULTI_V3 = OBS_DIM_MULTI + 4         # + 4 neighbour-hotspot flags = 22
 
 
 class MultiDeliveryEnv(DeliveryEnv):
-    def __init__(self, orders, grid_size=10, max_steps=100, map_seed=0, hotspot_frac=0.15, max_km=None, dynamic=False, shaping=0.0, shaping_gamma=0.95):
+    def __init__(self, orders, grid_size=10, max_steps=100, map_seed=0, hotspot_frac=0.15, max_km=None, dynamic=False, shaping=0.0, shaping_gamma=0.95, rules=None):
         super().__init__(orders, grid_size, max_steps, map_seed, hotspot_frac)
+        self.rules = {**DEFAULT_RULES, **(rules or {})}
         self.dynamic = dynamic  # True = a new order can appear MID-TRIP (use for testing re-planning)
         self.shaping, self.shaping_gamma = shaping, shaping_gamma  # >0: potential-based shaping (training only)
         if max_km is not None:  # reuse the TRAIN distance scale for val/test envs (avoids a tiny scale mismatch)
@@ -100,6 +116,7 @@ class MultiDeliveryEnv(DeliveryEnv):
         return -self.shaping * (abs(self.dest[0] - self.pos[0]) + abs(self.dest[1] - self.pos[1]))
 
     def step(self, action):
+        R = self.rules
         phi_old = self._phi() if self.shaping else 0.0
         r, c = self.pos
         dr, dc = MOVES[int(action)]
@@ -107,15 +124,15 @@ class MultiDeliveryEnv(DeliveryEnv):
         reward = 0.0
         if not (0 <= nr < self.n and 0 <= nc < self.n):
             nr, nc = r, c
-            reward -= 2.0
+            reward -= R["wall_pen"]
         self.pos = (nr, nc)
         self.steps += 1
 
-        move_cost = 1.0 + 0.3 * self.traffic + 0.2 * self.weather
-        minutes = MINUTES_PER_STEP * (1 + 0.25 * self.traffic + 0.15 * self.weather)
+        move_cost = 1.0 + R["c_traffic"] * self.traffic + R["c_weather"] * self.weather
+        minutes = MINUTES_PER_STEP * (1 + R["m_traffic"] * self.traffic + R["m_weather"] * self.weather)
         if self.hotspots[nr, nc]:
-            move_cost += 1.0 + self.traffic
-            minutes *= 2.0
+            move_cost += R["hot_extra"] + R["hot_traffic"] * self.traffic
+            minutes *= R["hot_minutes"]
         reward -= move_cost
         self.elapsed_min += minutes
 
@@ -126,7 +143,7 @@ class MultiDeliveryEnv(DeliveryEnv):
                 newly += 1
                 late = max(0.0, self.elapsed_min - self.deadlines[i])
                 self.late_total += late
-                reward += 50.0 - 0.5 * late
+                reward += R["deliver_bonus"] - R["late_w"] * late
 
         if self.arrival_step == self.steps and self._late_row is not None:  # new order arrives
             self.dests.append(self._place_dest(self._late_row["distance_km"], set(self.dests)))
@@ -138,7 +155,7 @@ class MultiDeliveryEnv(DeliveryEnv):
         terminated = all(self.delivered_flags)
         truncated = (not terminated) and self.steps >= self.max_steps
         if truncated:
-            reward -= 20.0
+            reward -= R["timeout_pen"]
         if self.shaping:  # F = gamma*phi(s') - phi(s): helps learning, does not change the best policy
             reward += self.shaping_gamma * (0.0 if terminated else self._phi()) - phi_old
 
@@ -225,7 +242,8 @@ def greedy_policy_multi(env):
 
 def _dijkstra_all(env, src):
     """Cheapest cost from src to every cell, plus the first action on that path."""
-    base = 1.0 + 0.3 * env.traffic + 0.2 * env.weather
+    R = getattr(env, "rules", DEFAULT_RULES)
+    base = 1.0 + R["c_traffic"] * env.traffic + R["c_weather"] * env.weather
     dist, first = {src: 0.0}, {src: None}
     heap = [(0.0, src)]
     while heap:
@@ -236,7 +254,7 @@ def _dijkstra_all(env, src):
             nr, nc = r + dr, c + dc
             if not (0 <= nr < env.n and 0 <= nc < env.n):
                 continue
-            nd = d + base + (1.0 + env.traffic if env.hotspots[nr, nc] else 0.0)
+            nd = d + base + (R["hot_extra"] + R["hot_traffic"] * env.traffic if env.hotspots[nr, nc] else 0.0)
             if nd < dist.get((nr, nc), 1e18):
                 dist[(nr, nc)] = nd
                 first[(nr, nc)] = a if first[(r, c)] is None else first[(r, c)]

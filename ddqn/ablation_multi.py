@@ -11,6 +11,8 @@ retrain, and score on the VALIDATION trips (never the test set):
   Input features (hide one group of inputs from the network by setting them to 0)
     - no distance feature : the Manhattan distance to each customer
     - no hotspot flags    : the 4 flags telling whether a neighbouring cell is congested
+    - Euclidean distance  : the distance input is straight-line instead of Manhattan (tests the Manhattan choice;
+                            the row/column offsets and the grid moves are unchanged)
 
 Each variant is trained with several seeds so we can see whether a change is bigger than training noise.
 
@@ -49,26 +51,34 @@ HOTSPOT_IDX = [18, 19, 20, 21]                          # 4 neighbour-hotspot fl
 class MaskedEnv(MultiDeliveryEnv):
     """Same environment, but chosen input numbers are replaced by 0 so the network cannot use them."""
 
-    def __init__(self, orders, mask_idx=(), **kw):
+    def __init__(self, orders, mask_idx=(), euclid=False, **kw):
         super().__init__(orders, **kw)
         self.mask_idx = list(mask_idx)
+        self.euclid = euclid
 
     def obs_v3(self):
         v = super().obs_v3()
+        if self.euclid:   # replace Manhattan distance by straight-line distance (same scale: divided by its maximum)
+            n = self.n - 1
+            for j, i in enumerate(DISTANCE_IDX):
+                if v[2 + 4 * j + 3] > 0:
+                    dr, dc = v[2 + 4 * j] * n, v[2 + 4 * j + 1] * n
+                    v[i] = np.sqrt(dr * dr + dc * dc) / (np.sqrt(2.0) * n)
         v[self.mask_idx] = 0.0
         return v
 
 
 def get_variants(best, group):
-    """name -> (changes to the config, indices of inputs to hide)."""
+    """name -> (changes to the config, indices of inputs to hide, use Euclidean distance)."""
     default = dm.DEFAULT_MODEL
-    v = {"Tuned (reference)": ({}, [])}
+    v = {"Tuned (reference)": ({}, [], False)}
     if group in ("hyper", "all"):
         for key in ["gamma", "hidden", "tau"]:
-            v[f"{key} back to default ({default[key]})"] = ({key: default[key]}, [])
+            v[f"{key} back to default ({default[key]})"] = ({key: default[key]}, [], False)
     if group in ("feature", "all"):
-        v["No distance feature"] = ({}, DISTANCE_IDX)
-        v["No hotspot flags"] = ({}, HOTSPOT_IDX)
+        v["No distance feature"] = ({}, DISTANCE_IDX, False)
+        v["No hotspot flags"] = ({}, HOTSPOT_IDX, False)
+        v["Euclidean instead of Manhattan distance"] = ({}, [], True)
     return v
 
 
@@ -105,14 +115,14 @@ def main():
     print(f"Variants: {list(variants)} | seeds per variant: {n_seeds} | train episodes: {base['episodes']}")
 
     rows = done.to_dict("records") if len(done) else []
-    for name, (changes, mask) in variants.items():
+    for name, (changes, mask, euclid) in variants.items():
         for s in range(n_seeds):
             if len(done) and ((done["variant"] == name) & (done["seed"] == s)).any():
                 print(f"[skip] {name}, seed {s} (already in {runs_path.name})")
                 continue
             cfg = {**base, **best, **changes, "seed": s}
-            train_env = MaskedEnv(train_env0.orders, mask_idx=mask, max_km=train_env0.max_km)
-            val_env = MaskedEnv(val_env0.orders, mask_idx=mask, max_km=train_env0.max_km)
+            train_env = MaskedEnv(train_env0.orders, mask_idx=mask, euclid=euclid, max_km=train_env0.max_km)
+            val_env = MaskedEnv(val_env0.orders, mask_idx=mask, euclid=euclid, max_km=train_env0.max_km)
             t0 = time.time()
             print(f"\n[train] {name} | seed {s} | changes {changes or 'none'} | hidden inputs {mask or 'none'}")
             net, _, _ = dm.train_agent(train_env, cfg, verbose=False)
