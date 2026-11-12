@@ -14,6 +14,7 @@ import json
 import re
 import time
 import urllib.request
+import altair as alt
 import folium
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -94,94 +95,213 @@ ROUTE_STYLES = {
     "Ensemble (QL + DQN + DDQN)": {"color": "#0F766E", "weight": 4, "dash": None},
 }
 
+MODEL_INFO = {
+    "Dueling Double DQN (DDQN)": ("Dueling Double DQN", "Best all-rounder. Learns to steer around traffic hotspots."),
+    "Deep Q-Network (DQN v2)": ("Deep Q-Network v2", "Neural network that learned direction and distance."),
+    "Deep Q-Network (DQN v3)": ("Deep Q-Network v3", "DQN v2 plus a short-range traffic radar."),
+    "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
+    "Deep Q-Network (DQN v1)": ("Deep Q-Network v1", "Early version using raw map coordinates."),
+    "Ensemble (QL + DQN + DDQN)": ("Ensemble (all models)", "Combines the votes of all three AI model families."),
+    "Direct Route (Baseline)": ("Direct route", "Heads straight for the customer and ignores traffic."),
+    "Shortest-Time Planner (Dijkstra)": ("Shortest-path planner", "Classic map search that sees all traffic in advance."),
+    "Random Baseline": ("Random moves", "Moves randomly. Used as a sanity check."),
+}
+
+
+def model_label(name: str) -> str:
+    return MODEL_INFO.get(name, (name, ""))[0]
+
+
+def model_desc(name: str) -> str:
+    return MODEL_INFO.get(name, ("", ""))[1]
+
+
 st.set_page_config(
-    page_title="Food Delivery Route Dispatch & Analysis",
+    page_title="Food Delivery Route Planner",
+    page_icon="🛵",
     layout="wide",
 )
 
-# Explicit light-surface and high-contrast text rules so KPI cards never render blank
-# even if the user's browser or OS is set to Dark Mode.
 st.markdown(
     """
     <style>
-    .block-container {
-        padding-top: 1.4rem;
-        padding-bottom: 2rem;
+    :root {
+        --ink: #111827;
+        --ink-2: #374151;
+        --muted: #6B7280;
+        --line: #E5E7EB;
+        --line-soft: #F1F2F5;
+        --surface: #FFFFFF;
+        --canvas: #F6F7FB;
+        --brand: #EA580C;
+        --brand-soft: #FFF1E7;
+        --route: #2563EB;
+        --good: #15803D;
+        --good-soft: #DCFCE7;
+        --bad: #B91C1C;
+        --bad-soft: #FEE2E2;
+        --warn-soft: #FEF3C7;
     }
-    div[data-testid="stMetric"] {
-        background-color: #FFFFFF !important;
-        border: 1px solid #E2E8F0 !important;
-        border-radius: 8px !important;
-        padding: 0.85rem 1.05rem !important;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+    .block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1380px; }
+    header[data-testid="stHeader"] { background: transparent; }
+    section[data-testid="stSidebar"] { border-right: 1px solid var(--line); }
+    /* Compact option buttons so 3-4 choices fit on one line in the sidebar */
+    section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button {
+        padding-left: 9px !important; padding-right: 9px !important; min-width: 0 !important;
     }
-    div[data-testid="stMetricLabel"] p,
-    div[data-testid="stMetricLabel"] {
-        color: #475569 !important;
-        font-weight: 600 !important;
-        font-size: 0.85rem !important;
+    section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button p { font-size: 0.85rem !important; }
+    section[data-testid="stSidebar"] .block-container { padding-top: 1.5rem; }
+
+    /* ---------- Sidebar ---------- */
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom: 0.4rem; }
+    .brand-logo {
+        width: 36px; height: 36px; border-radius: 10px; background: var(--brand);
+        display:flex; align-items:center; justify-content:center; font-size: 19px;
     }
-    div[data-testid="stMetricValue"],
-    div[data-testid="stMetricValue"] > div {
-        color: #0F172A !important;
-        font-weight: 700 !important;
-        font-size: 1.55rem !important;
+    .brand-name { font-weight: 800; font-size: 1.02rem; color: var(--ink); line-height: 1.1; }
+    .brand-sub { font-size: 0.75rem; color: var(--muted); }
+    .step-head {
+        display:flex; align-items:center; gap:9px; margin: 1.1rem 0 0.35rem;
+        font-weight: 700; font-size: 0.95rem; color: var(--ink);
     }
-    .kv-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 0.36rem 0;
-        border-bottom: 1px solid #F1F5F9;
-        font-size: 0.86rem;
-        gap: 0.75rem;
+    .step-num {
+        width: 22px; height: 22px; border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+        display:inline-flex; align-items:center; justify-content:center; font-size: 0.75rem; font-weight: 800;
     }
-    .kv-row:last-child {
-        border-bottom: none;
+    .model-hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.45rem; margin-bottom: 0.4rem; }
+
+    /* ---------- Hero ---------- */
+    .hero h1 {
+        font-size: 2.05rem; font-weight: 800; letter-spacing: -0.02em; color: var(--ink);
+        margin: 0; padding: 0; line-height: 1.15;
     }
-    .kv-key {
-        color: #64748B;
-        font-weight: 500;
-        white-space: nowrap;
+    .hero p { color: var(--muted); font-size: 0.98rem; margin: 0.35rem 0 0; max-width: 760px; }
+    .eyebrow {
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+        color: var(--brand); margin-bottom: 0.3rem;
     }
-    .kv-val {
-        color: #0F172A;
-        font-weight: 600;
-        text-align: right;
+
+    /* ---------- Tabs ---------- */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px; background: var(--surface); padding: 5px; border-radius: 12px;
+        border: 1px solid var(--line); width: fit-content; max-width: 100%;
     }
-    .timeline-box {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 6px;
-        padding: 0.65rem 0.8rem;
-        margin-top: 0.45rem;
-        margin-bottom: 0.35rem;
+    .stTabs [data-baseweb="tab"] {
+        height: 38px; padding: 0 18px; border-radius: 8px; background: transparent;
     }
-    .timeline-step {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.55rem;
-        padding: 0.28rem 0;
-        font-size: 0.83rem;
-        color: #1E293B;
-        border-left: 2px solid #CBD5E1;
-        padding-left: 0.65rem;
-        margin-left: 0.25rem;
+    .stTabs [data-baseweb="tab"] p { font-weight: 600; font-size: 0.92rem; }
+    .stTabs [aria-selected="true"] { background: var(--brand-soft); }
+    .stTabs [aria-selected="true"] p { color: var(--brand); }
+    .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
+
+    /* ---------- Chips ---------- */
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin: 0.2rem 0 1rem; }
+    .chip {
+        display:inline-flex; align-items:center; gap:6px; background: var(--surface);
+        border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
+        font-size: 0.83rem; color: var(--ink-2); font-weight: 500;
     }
-    .timeline-step:last-child {
-        border-left: 2px solid #2563EB;
+
+    /* ---------- KPI cards ---------- */
+    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 1.1rem; }
+    .kpi {
+        background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+        padding: 16px 18px; box-shadow: 0 1px 2px rgba(17,24,39,0.04);
     }
-    .timeline-badge {
-        font-weight: 600;
-        color: #0F172A;
+    .kpi-label { font-size: 0.82rem; color: var(--muted); font-weight: 600; display:flex; align-items:center; gap:7px; }
+    .kpi-value { font-size: 1.75rem; font-weight: 800; color: var(--ink); margin-top: 6px; letter-spacing: -0.01em; }
+    .kpi-value.text { font-size: 1.2rem; line-height: 1.3; }
+    .kpi-sub { font-size: 0.8rem; margin-top: 4px; color: var(--muted); }
+    .kpi-sub.good { color: var(--good); font-weight: 600; }
+    .kpi-sub.bad { color: var(--bad); font-weight: 600; }
+
+    /* ---------- Cards / panels ---------- */
+    .panel {
+        background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+        padding: 18px 18px 8px;
     }
-    .timeline-meta {
-        color: #64748B;
-        font-size: 0.78rem;
+    .panel-title { font-weight: 700; font-size: 1rem; color: var(--ink); margin-bottom: 2px; }
+    .panel-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
+    .note {
+        display:flex; gap:10px; align-items:flex-start; border-radius: 12px; padding: 10px 14px;
+        font-size: 0.84rem; line-height: 1.45; color: var(--ink-2); margin: 0 0 12px;
+        background: #EFF6FF; border: 1px solid #BFDBFE;
     }
+    .note.warm { background: var(--brand-soft); border-color: #FED7AA; }
+    .note b { color: var(--ink); }
+    .note-icon { font-size: 1rem; line-height: 1.3; }
+    .real-sim { display:flex; flex-wrap:wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--muted); margin: 8px 2px 0; }
+    .real-sim .tag { font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-right: 4px; font-size: 0.72rem; }
+    .real-sim .tag.real { background: var(--good-soft); color: var(--good); }
+    .real-sim .tag.sim { background: var(--warn-soft); color: #92400E; }
+    .map-frame { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+
+    /* ---------- Trip timeline ---------- */
+    .stops { position: relative; margin: 6px 0 10px; }
+    .stop { display:flex; gap: 12px; position: relative; padding-bottom: 16px; }
+    .stop:not(:last-child)::before {
+        content: ""; position: absolute; left: 15px; top: 32px; bottom: 0; width: 2px; background: var(--line);
+    }
+    .stop-icon {
+        flex: 0 0 32px; height: 32px; border-radius: 50%; display:flex; align-items:center; justify-content:center;
+        font-size: 15px; background: var(--line-soft); border: 1px solid var(--line);
+    }
+    .stop-icon.rider { background: #FFEDD5; border-color: #FED7AA; }
+    .stop-icon.store { background: #DCFCE7; border-color: #BBF7D0; }
+    .stop-icon.home { background: #DBEAFE; border-color: #BFDBFE; }
+    .stop-body { flex: 1; min-width: 0; }
+    .stop-row { display:flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .stop-title { font-weight: 650; font-size: 0.9rem; color: var(--ink); }
+    .stop-time { font-weight: 700; font-size: 0.85rem; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .stop-meta { font-size: 0.78rem; color: var(--muted); margin-top: 1px; overflow-wrap: anywhere; }
+    .pill { display:inline-block; font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: 4px; }
+    .pill.good { background: var(--good-soft); color: var(--good); }
+    .pill.bad { background: var(--bad-soft); color: var(--bad); }
+
+    .facts { border-top: 1px solid var(--line-soft); margin-top: 4px; padding-top: 8px; }
+    .fact { display:flex; justify-content: space-between; padding: 6px 0; font-size: 0.84rem; border-bottom: 1px solid var(--line-soft); gap: 10px; }
+    .fact:last-child { border-bottom: none; }
+    .fact span:first-child { color: var(--muted); }
+    .fact span:last-child { color: var(--ink); font-weight: 600; text-align: right; }
+
+    .section-title { font-size: 1.15rem; font-weight: 750; color: var(--ink); margin: 1.4rem 0 0.15rem; }
+    .section-sub { font-size: 0.88rem; color: var(--muted); margin-bottom: 0.8rem; }
+
+    div[data-testid="stExpander"] details { background: var(--surface); border-radius: 12px; }
+    .main iframe, section.stMain iframe { border-radius: 14px; border: 1px solid var(--line) !important; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def html_kpi(icon: str, label: str, value: str, sub: str = "", tone: str = "", text: bool = False) -> str:
+    return (
+        f'<div class="kpi"><div class="kpi-label"><span>{icon}</span>{label}</div>'
+        f'<div class="kpi-value{" text" if text else ""}">{value}</div><div class="kpi-sub {tone}">{sub}</div></div>'
+    )
+
+
+def bar_chart(df: pd.DataFrame, value_col: str, color: str, fmt: str, ascending: bool):
+    order = df.sort_values(value_col, ascending=ascending)["Model"].tolist()
+    base = alt.Chart(df).encode(
+        y=alt.Y("Model:N", sort=order, title=None, axis=alt.Axis(labelLimit=220, labelFontSize=12, ticks=False, domain=False)),
+        x=alt.X(f"{value_col}:Q", title=None,
+                scale=alt.Scale(domain=[0, float(df[value_col].max()) * 1.12 or 1], nice=False), axis=alt.Axis(grid=True, labelFontSize=11, domain=False, ticks=False)),
+        tooltip=["Model", alt.Tooltip(f"{value_col}:Q", format=fmt)],
+    )
+    bars = base.mark_bar(color=color, cornerRadiusEnd=4, size=18)
+    labels = base.mark_text(align="left", dx=4, fontSize=11, color="#374151").encode(
+        text=alt.Text(f"{value_col}:Q", format=fmt)
+    )
+    return (bars + labels).properties(height=max(160, 34 * len(df))).configure_view(stroke=None)
+
+
+def section(title: str, sub: str = "") -> None:
+    st.markdown(
+        f'<div class="section-title">{title}</div>' + (f'<div class="section-sub">{sub}</div>' if sub else ""),
+        unsafe_allow_html=True,
+    )
 
 
 def style_sla_status(val: str) -> str:
@@ -823,7 +943,7 @@ def build_route_map(
         folium.Marker(
             location=[rider_lat, rider_lon],
             tooltip=f"Rider Origin | Dispatched for Order #{order_meta['order_id']} (t = 0.0 min)",
-            icon=make_pin_icon("🛵", "Rider Start", "#EA580C", "#9A3412"),
+            icon=make_pin_icon("🛵", "Rider", "#EA580C", "#9A3412"),
         ).add_to(m)
 
     # Pickup sequence across batched restaurants (Rest A -> Rest B -> Rest C)
@@ -852,7 +972,7 @@ def build_route_map(
                     f"Pickup Rest {bo['tag']} | Order #{bo['order_id']} ({bo['order_type']}) | "
                     f"Pickup ETA: +{bo['pickup_min']} min"
                 ),
-                icon=make_pin_icon("🏪", f"Rest {bo['tag']}", "#15803D", "#14532D"),
+                icon=make_pin_icon("🏪", f"Pickup {bo['tag']}", "#15803D", "#14532D"),
             ).add_to(m)
             last_rest_lat, last_rest_lon = r_lat, r_lon
 
@@ -916,7 +1036,7 @@ def build_route_map(
             prev_lat, prev_lon = s_lat, s_lon
 
     # Store Pickup Marker for Rest A
-    rest_a_label = "Rest A" if (batch_orders and len(batch_orders) > 1) else "Pickup Store"
+    rest_a_label = "Pickup A" if (batch_orders and len(batch_orders) > 1) else "Restaurant"
     folium.Marker(
         location=[rest_lat, rest_lon],
         tooltip=(
@@ -938,15 +1058,16 @@ def build_route_map(
                     f"Dropoff Cust {d_stop['tag']} | Order #{d_stop['order_id']} | "
                     f"ETA: +{d_stop['dropoff_min']} min (Wait: {d_stop['wait_min']}m — {sla_txt})"
                 ),
-                icon=make_pin_icon("🏠", f"Cust {d_stop['tag']} ({d_stop['dropoff_min']}m)", bg_c, bd_c),
+                icon=make_pin_icon("🏠", f"Drop-off {d_stop['tag']} · {d_stop['dropoff_min']:.0f} min", bg_c, bd_c),
             ).add_to(m)
 
     pad_lat = max((max(all_lats) - min(all_lats)) * 0.16, 0.003)
     pad_lon = max((max(all_lons) - min(all_lons)) * 0.16, 0.003)
-    m.fit_bounds([
+    fit_box = [
         [min(all_lats) - pad_lat, min(all_lons) - pad_lon],
         [max(all_lats) + pad_lat, max(all_lons) + pad_lon],
-    ])
+    ]
+    m.fit_bounds(fit_box)
 
     # Mount visual legend as a native Leaflet control (bottom-right corner) + OSRM street snapper
     map_var = m.get_name()
@@ -955,12 +1076,23 @@ def build_route_map(
     window.addEventListener("load", function() {{
         var mapObj = window["{map_var}"];
         if (mapObj && typeof L !== "undefined") {{
+            // Re-fit once the iframe has its real size (fitBounds at 0px size zooms far out).
+            var fitBox = {json.dumps(fit_box)};
+            var refit = function() {{ mapObj.invalidateSize(); mapObj.fitBounds(fitBox); }};
+            refit();
+            if (window.ResizeObserver) {{
+                var lastW = 0;
+                new ResizeObserver(function(entries) {{
+                    var w = entries[0].contentRect.width;
+                    if (w > 0 && Math.abs(w - lastW) > 40) {{ lastW = w; refit(); }}
+                }}).observe(mapObj.getContainer());
+            }}
             var legend = L.control({{position: "bottomright"}});
             legend.onAdd = function(map) {{
                 var div = L.DomUtil.create("div", "info legend");
                 div.style.background = "rgba(255, 255, 255, 0.96)";
                 div.style.border = "1px solid #CBD5E1";
-                div.style.borderRadius = "8px";
+                div.style.borderRadius = "10px";
                 div.style.padding = "8px 12px";
                 div.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
                 div.style.fontSize = "11.5px";
@@ -968,25 +1100,25 @@ def build_route_map(
                 div.style.boxShadow = "0 2px 8px rgba(15, 23, 42, 0.16)";
                 div.style.lineHeight = "1.6";
                 div.innerHTML =
-                    '<div style="font-weight:700;margin-bottom:3px;color:#1E293B;font-size:12px;">Map Legend</div>' +
+                    '<div style="font-weight:700;margin-bottom:3px;color:#1E293B;font-size:12px;">Legend</div>' +
                     '<div style="display:flex;align-items:center;gap:7px;">' +
                         '<span style="display:inline-block;width:18px;height:3.5px;background:#2563EB;border-radius:2px;"></span>' +
-                        '<span>Optimized RL Delivery Route</span>' +
+                        '<span>AI route</span>' +
                     '</div>' +
                     '<div style="display:flex;align-items:center;gap:7px;">' +
                         '<span style="display:inline-block;width:18px;height:0;border-top:3px dashed #16A34A;"></span>' +
-                        '<span>Pickup Sequence (Rider &rarr; Store)</span>' +
+                        '<span>Ride to restaurant</span>' +
                     '</div>' +
                     '<div style="display:flex;align-items:center;gap:7px;">' +
                         '<span style="display:inline-block;width:18px;height:0;border-top:2.5px dashed #64748B;"></span>' +
-                        '<span>Direct Unoptimized Baseline</span>' +
+                        '<span>Direct route (for comparison)</span>' +
                     '</div>' +
                     '<div style="display:flex;align-items:center;gap:6px;margin-top:2px;">' +
                         '<span>🛵 Rider</span><span>&middot;</span>' +
-                        '<span>🏪 Store Pickup</span><span>&middot;</span>' +
+                        '<span>🏪 Restaurant</span><span>&middot;</span>' +
                         '<span>🏠 Customer</span><span>&middot;</span>' +
                         '<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:#F59E0B;color:#fff;border-radius:50%;font-size:9px;font-weight:700;">!</span>' +
-                        '<span>Heavy Traffic</span>' +
+                        '<span>Traffic jam</span>' +
                     '</div>';
                 return div;
             }};
@@ -1066,176 +1198,212 @@ def draw_grid_diagnostic(sim_data, title: str):
 # INITIALIZE DATA & MODELS
 # ==============================================================================
 try:
-    train_orders, test_orders, test_meta, catalog_df, all_policies = load_system_resources()
+    with st.spinner("Loading delivery data and trained models..."):
+        train_orders, test_orders, test_meta, catalog_df, all_policies = load_system_resources()
 except Exception as exc:
     st.error(f"Failed to load dataset or model checkpoints: {exc}")
     st.stop()
 
+WEATHER_ICONS = {0: "☀️", 1: "🌬️", 2: "🌫️", 3: "⛈️"}
+TRAFFIC_ICONS = {0: "🟢", 1: "🟡", 2: "🟠", 3: "🔴"}
+
+# Restaurant (start) and customer (dest) cells on the 10x10 grid for custom scenarios.
+TRIP_PRESETS = {
+    "Short": {"start": (4, 3), "dest": (6, 6), "desc": "A few blocks away (about 5 blocks)."},
+    "Medium": {"start": (2, 1), "dest": (7, 6), "desc": "Across the neighbourhood (about 10 blocks)."},
+    "Cross-town": {"start": (0, 0), "dest": (9, 9), "desc": "Corner to corner across the city (18 blocks)."},
+}
+
+
+def step_head(num: int, text: str) -> None:
+    st.markdown(f'<div class="step-head"><span class="step-num">{num}</span>{text}</div>', unsafe_allow_html=True)
+
+
 # ==============================================================================
-# SIDEBAR CONTROLS (WITH HELP TOOLTIPS & REALISTIC DEFAULTS)
+# SIDEBAR: 3 SIMPLE STEPS (advanced options tucked into expanders)
 # ==============================================================================
 with st.sidebar:
-    st.subheader("Order Dispatch Filter")
-    source_mode = st.radio(
-        "Dispatch Mode",
-        options=["Historical Zomato Order", "Custom Simulation Scenario"],
-        index=0,
-        help="Choose a real GPS order from the Kaggle Zomato dataset or configure custom traffic and weather conditions.",
+    st.markdown(
+        '<div class="brand"><div class="brand-logo">🛵</div><div>'
+        '<div class="brand-name">Route Planner</div>'
+        '<div class="brand-sub">AI routing for food delivery</div></div></div>',
+        unsafe_allow_html=True,
     )
 
-    if source_mode == "Historical Zomato Order":
-        city_list = sorted(catalog_df["city"].unique().tolist())
-        city_options = ["All Metropolitan Zones (22 Cities)"] + city_list
-        selected_city = st.selectbox(
-            "Operating City",
-            options=city_options,
-            index=0,
-            help="Filter historical Zomato orders by city extracted from the rider's dispatch zone code.",
-        )
+    # ---- Step 1: Order ----
+    step_head(1, "Pick an order")
+    use_custom = st.toggle(
+        "Build my own scenario",
+        value=False,
+        help="Off: replay a real order from the Zomato dataset. On: set traffic and weather yourself.",
+    )
 
-        traffic_opts = ["Any Traffic Density", "Jam", "High", "Medium", "Low"]
-        selected_traffic = st.selectbox(
-            "Road Traffic Filter",
-            options=traffic_opts,
-            index=0,
-            help="Filter orders by recorded road traffic density at the time of dispatch.",
-        )
+    if not use_custom:
+        city_list = sorted(catalog_df["city"].unique().tolist())
+        selected_city = st.selectbox("City", options=["All cities"] + city_list, index=0)
+
+        with st.expander("Filter by traffic"):
+            selected_traffic = st.segmented_control(
+                "Traffic at order time",
+                options=["Low", "Medium", "High", "Jam"],
+                selection_mode="single",
+                default=None,
+                help="Leave empty to show all orders.",
+            )
 
         filtered_cat = catalog_df.copy()
-        if selected_city != "All Metropolitan Zones (22 Cities)":
+        if selected_city != "All cities":
             filtered_cat = filtered_cat[filtered_cat["city"] == selected_city]
-        if selected_traffic != "Any Traffic Density":
+        if selected_traffic:
             filtered_cat = filtered_cat[filtered_cat["traffic_label"] == selected_traffic]
         if filtered_cat.empty:
+            st.caption("No orders match those filters, so all orders are shown.")
             filtered_cat = catalog_df.copy()
 
         order_options = filtered_cat["seed"].tolist()
         order_labels = {
-            row["seed"]: f"Order #{row['order_id']} · {row['city']} ({row['distance_km']} km)"
+            row["seed"]: f"#{row['order_id']} · {row['city']} · {row['distance_km']} km"
             for _, row in filtered_cat.iterrows()
         }
-        default_idx = order_options.index(7) if 7 in order_options else 0
-
         selected_seed = st.selectbox(
-            "Primary Order ID",
+            f"Order ({len(order_options)} available)",
             options=order_options,
-            index=default_idx,
+            index=order_options.index(7) if 7 in order_options else 0,
             format_func=lambda s: order_labels[s],
-            help="Select the primary delivery order to dispatch and evaluate on the street map.",
         )
         custom_cfg = {"use_custom": False, "hotspot_frac": 0.15}
     else:
         selected_seed = 7
-        t_level = st.selectbox(
-            "Traffic Level",
-            [0, 1, 2, 3],
-            index=3,
-            format_func=lambda x: TRAFFIC_LABELS[x],
-            help="Simulated road traffic severity affecting travel time per grid sector.",
+        t_level = st.segmented_control(
+            "Traffic", options=[0, 1, 2, 3], default=3, format_func=lambda x: TRAFFIC_LABELS[x]
         )
-        w_level = st.selectbox(
-            "Weather Condition",
-            [0, 1, 2, 3],
-            index=0,
-            format_func=lambda x: WEATHER_LABELS[x],
-            help="Simulated weather condition affecting rider speed and step penalty.",
+        w_level = st.segmented_control(
+            "Weather", options=[0, 1, 2, 3], default=0, format_func=lambda x: WEATHER_LABELS[x]
         )
-        h_frac = st.slider(
-            "Heavy Traffic Density",
-            0.05,
-            0.35,
-            0.15,
-            0.05,
-            help="Proportion of urban road sectors experiencing heavy traffic jams (2.0x delay).",
+        h_pct = st.slider(
+            "Traffic jams on the map",
+            5, 35, 15, 5,
+            format="%d%%",
+            help="Share of city blocks with heavy traffic (travel there is 2x slower).",
         )
-        c1, c2 = st.columns(2)
-        sr = c1.number_input("Start Row", 0, 9, 2)
-        sc = c2.number_input("Start Col", 0, 9, 1)
-        dr = c1.number_input("Dest Row", 0, 9, 8)
-        dc = c2.number_input("Dest Col", 0, 9, 8)
+        h_frac = h_pct / 100.0
+        trip_len = st.segmented_control(
+            "Trip length",
+            options=list(TRIP_PRESETS.keys()),
+            default="Medium",
+            help="How far the customer is from the restaurant on the AI's 10×10 city grid.",
+        ) or "Medium"
+        st.caption(TRIP_PRESETS[trip_len]["desc"])
+        (sr, sc), (dr, dc) = TRIP_PRESETS[trip_len]["start"], TRIP_PRESETS[trip_len]["dest"]
+
+        with st.expander("Advanced: exact grid cells"):
+            st.caption(
+                "The AI plans on a 10×10 grid of city blocks. Row 0 is the top edge and column 0 is the "
+                "left edge. Start is the restaurant and destination is the customer."
+            )
+            use_exact = st.toggle("Use exact cells instead of trip length", value=False)
+            if use_exact:
+                c1, c2 = st.columns(2)
+                sr = c1.number_input("Start row", 0, 9, int(sr))
+                sc = c2.number_input("Start column", 0, 9, int(sc))
+                dr = c1.number_input("Destination row", 0, 9, int(dr))
+                dc = c2.number_input("Destination column", 0, 9, int(dc))
+                if (sr, sc) == (dr, dc):
+                    st.warning("Start and destination are the same cell, so there is nothing to route.")
         custom_cfg = {
             "use_custom": True,
-            "traffic": int(t_level),
-            "weather": int(w_level),
+            "traffic": int(t_level if t_level is not None else 3),
+            "weather": int(w_level if w_level is not None else 0),
             "hotspot_frac": float(h_frac),
             "start": (int(sr), int(sc)),
             "dest": (int(dr), int(dc)),
         }
 
-    st.divider()
-    st.subheader("Order Batching (VRP)")
-    include_pickup_leg = st.checkbox(
-        "Include Rider -> Store Pickup Leg",
-        value=True,
-        help="Display the rider's initial approach leg from their dispatch origin to the first restaurant.",
+    # ---- Step 2: Trip ----
+    step_head(2, "Set up the trip")
+    n_choice = st.segmented_control(
+        "Orders the rider carries",
+        options=[1, 2, 3],
+        default=2,
+        format_func=lambda n: f"{n} order" if n == 1 else f"{n} orders",
+        help="Batch nearby orders (restaurants within 2.5 km) into one trip.",
     )
-    batch_choice = st.selectbox(
-        "Orders in Batch",
-        options=[
-            "2 Orders (Batched Trip)",
-            "1 Order (Single Trip)",
-            "3 Orders (Max Stacked Batch)",
-            "Match Dataset Record",
-        ],
-        index=0,
-        help="Group nearby orders within a 2.5 km restaurant radius into a multi-stop Vehicle Routing Problem (VRP) trip.",
-    )
-    pickup_mode = st.selectbox(
-        "Store Pickup Topology",
-        options=["Multi-Store Pickup (2.5 km Radius)", "Single Store Batch Pickup"],
-        index=0,
-        help="Choose whether batched orders are collected from separate nearby restaurants or a single restaurant.",
-    )
+    with st.expander("More trip options"):
+        match_dataset = st.toggle(
+            "Use the order's real batch size",
+            value=False,
+            help="Ignore the choice above and use the number of orders recorded in the dataset.",
+        )
+        diff_restaurants = st.toggle(
+            "Pick up from different restaurants",
+            value=True,
+            help="On: each order comes from a different nearby restaurant. Off: all orders come from one restaurant.",
+        )
+        include_pickup_leg = st.toggle(
+            "Show rider's trip to the restaurant",
+            value=True,
+            help="Draw the rider's ride from their starting point to the first restaurant.",
+        )
 
-    st.divider()
-    st.subheader("Routing Algorithm")
+    # ---- Step 3: Model ----
+    step_head(3, "Choose the AI model")
     policy_names = list(all_policies.keys())
     primary_model = st.selectbox(
-        "Primary RL Model",
+        "Routing model",
         options=policy_names,
         index=0,
-        help="Select the primary reinforcement learning algorithm used to compute the blue route and trip KPIs.",
+        format_func=model_label,
+        label_visibility="collapsed",
     )
-    show_baseline = st.checkbox(
-        "Overlay Direct Route (Baseline)",
+    st.markdown(f'<div class="model-hint">{model_desc(primary_model)}</div>', unsafe_allow_html=True)
+    show_baseline = st.toggle(
+        "Compare with the direct route",
         value=True,
-        help="Show the unoptimized greedy route (dashed gray line) on the map for visual comparison.",
+        help="Also draw the naive straight-to-customer route (grey dashed line) to see the time saved.",
     )
-    extra_models = st.multiselect(
-        "Overlay Additional Models",
-        options=[p for p in policy_names if p not in (primary_model, "Direct Route (Baseline)")],
-        default=[],
-        placeholder="Select models to compare on map...",
-        help="Overlay secondary RL models on the street map and comparison table.",
-    )
+    with st.expander("Map & comparison options"):
+        extra_models = st.multiselect(
+            "Also draw these models",
+            options=[p for p in policy_names if p not in (primary_model, "Direct Route (Baseline)")],
+            default=[],
+            format_func=model_label,
+            placeholder="Choose models...",
+        )
+        tile_style = st.selectbox(
+            "Map style",
+            options=["Standard (OpenStreetMap)", "Clean Street (Esri)", "Minimal Light (Esri)"],
+            index=2,
+            format_func=lambda s: s.split(" (")[0],
+        )
+        show_hotspots = st.toggle("Show traffic jam zones", value=True)
+
+    if not TORCH_AVAILABLE:
+        st.caption("PyTorch is not installed, so only Q-Learning and the baseline models are available.")
 
 # ==============================================================================
-# MAIN PAGE HEADER & TABS
+# HEADER & TABS
 # ==============================================================================
-st.title("Food Delivery Route Dispatch & Analysis")
+st.markdown(
+    '<div class="hero"><div class="eyebrow">Food delivery · Reinforcement learning</div>'
+    "<h1>Delivery Route Planner</h1>"
+    "<p>Pick an order in the sidebar. The AI plans the rider's route around traffic and checks that "
+    f"every customer gets their food within {SLA_LIMIT_MIN:.0f} minutes of pickup.</p></div>",
+    unsafe_allow_html=True,
+)
+st.write("")
 
-tab_map, tab_val, tab_bench, tab_tuning, tab_data = st.tabs([
-    "Route Dispatch",
-    "Algorithm Validation",
-    "Model Benchmark (Part A & B)",
-    "Model Tuning & Robustness",
-    "Dataset & Error Analysis",
-])
+tab_map, tab_compare, tab_research = st.tabs(["🗺️  Plan a route", "📊  Compare models", "🔬  Research details"])
 
 # ------------------------------------------------------------------------------
-# TAB 1: ROUTE DISPATCH
+# TAB 1: PLAN A ROUTE
 # ------------------------------------------------------------------------------
 with tab_map:
     order_meta = catalog_df.loc[catalog_df["seed"] == int(selected_seed)].iloc[0].to_dict()
 
-    if batch_choice.startswith("Match"):
+    if match_dataset:
         n_deliveries = int(np.clip(order_meta.get("multi_count", 1), 1, 3))
-    elif batch_choice.startswith("1"):
-        n_deliveries = 1
-    elif batch_choice.startswith("2"):
-        n_deliveries = 2
     else:
-        n_deliveries = 3
+        n_deliveries = int(n_choice) if n_choice else 1
 
     active_models = [primary_model]
     if show_baseline and "Direct Route (Baseline)" in all_policies and primary_model != "Direct Route (Baseline)":
@@ -1244,83 +1412,102 @@ with tab_map:
         if m_name not in active_models:
             active_models.append(m_name)
 
-    sims = {
-        name: simulate_single_episode(all_policies[name], test_orders, int(selected_seed), custom_cfg)
-        for name in active_models
-    }
-    baseline_sim = (
-        sims["Direct Route (Baseline)"]
-        if "Direct Route (Baseline)" in sims
-        else simulate_single_episode(greedy_policy, test_orders, int(selected_seed), custom_cfg)
-    )
-    primary_sim = sims[primary_model]
-    env_ref = primary_sim["env"]
+    with st.spinner("Planning the route..."):
+        sims = {
+            name: simulate_single_episode(all_policies[name], test_orders, int(selected_seed), custom_cfg)
+            for name in active_models
+        }
+        baseline_sim = (
+            sims["Direct Route (Baseline)"]
+            if "Direct Route (Baseline)" in sims
+            else simulate_single_episode(greedy_policy, test_orders, int(selected_seed), custom_cfg)
+        )
+        primary_sim = sims[primary_model]
+        env_ref = primary_sim["env"]
 
-    diff_restaurants = pickup_mode.startswith("Multi-Store")
-    batch_orders, dropoff_sequence, sla_df, batch_summary = build_real_order_batch(
-        order_meta,
-        test_meta,
-        n_deliveries,
-        diff_restaurants,
-        primary_sim,
-        all_policies[primary_model],
-        test_orders,
-        include_pickup_leg=include_pickup_leg,
-    )
+        batch_orders, dropoff_sequence, sla_df, batch_summary = build_real_order_batch(
+            order_meta,
+            test_meta,
+            n_deliveries,
+            diff_restaurants,
+            primary_sim,
+            all_policies[primary_model],
+            test_orders,
+            include_pickup_leg=include_pickup_leg,
+        )
 
     time_saved = round(baseline_sim["minutes"] - primary_sim["minutes"], 1)
     zones_avoided = max(0, baseline_sim["hotspot_hits"] - primary_sim["hotspot_hits"])
     compliant_count = sum(1 for d in dropoff_sequence if d["sla_compliant"])
+    traffic_lbl = TRAFFIC_LABELS[env_ref.traffic]
+    weather_lbl = WEATHER_LABELS[env_ref.weather]
 
-    # 3 Populated Native st.metric() Cards with Help Tooltips
-    k1, k2, k3 = st.columns(3)
-    k1.metric(
-        label="Total Batched Distance",
-        value=f"{batch_summary['total_km']:.2f} km",
-        delta=f"Primary leg: {order_meta['distance_km']:.2f} km · {TRAFFIC_LABELS[env_ref.traffic]} traffic",
-        delta_color="off",
-        help="Total cumulative road distance across all restaurant pickups and customer drop-offs in this batch.",
-        border=True,
-    )
-    k2.metric(
-        label="Est. Total Time",
-        value=f"{batch_summary['total_duration_min']:.1f} min",
-        delta=f"{time_saved:+.1f} min vs. Direct Route ({zones_avoided} heavy traffic zones avoided)",
-        delta_color="normal",
-        help="Estimated total trip duration using the active RL routing model, including time saved vs. the unoptimized direct route.",
-        border=True,
-    )
-    k3.metric(
-        label="Orders in Batch",
-        value=f"{n_deliveries} {'Order' if n_deliveries == 1 else 'Orders'}",
-        delta=(
-            f"{compliant_count}/{n_deliveries} SLA Compliant (<= 45m)"
-            if batch_summary["all_compliant"]
-            else f"SLA Breached (Max wait: {batch_summary['max_wait_min']:.1f}m)"
-        ),
-        delta_color="normal" if batch_summary["all_compliant"] else "inverse",
-        help="Number of grouped orders in the rider's current trip and their 45-minute SLA compliance status.",
-        border=True,
+    # ---- Context chips ----
+    place = "Custom scenario" if use_custom else f"{order_meta['city']} · {order_meta['area_type']}"
+    chips = [
+        f"📍 {place}",
+        f"{TRAFFIC_ICONS[env_ref.traffic]} {traffic_lbl} traffic",
+        f"{WEATHER_ICONS[env_ref.weather]} {weather_lbl}",
+        f"🏍️ {order_meta['vehicle_type']}",
+        f"🤖 {model_label(primary_model)}",
+    ]
+    st.markdown(
+        '<div class="chips">' + "".join(f'<span class="chip">{c}</span>' for c in chips) + "</div>",
+        unsafe_allow_html=True,
     )
 
-    # Two-Column Main Layout: Left = Map & Diagnostics, Right = Summary & Styled Tables
-    col_map, col_summary = st.columns([2.2, 1.05])
+    # ---- KPI cards ----
+    grid_blocks = abs(primary_sim["start"][0] - primary_sim["dest"][0]) + abs(primary_sim["start"][1] - primary_sim["dest"][1])
+    if primary_model == "Direct Route (Baseline)":
+        saved_value, saved_sub, saved_tone = "—", "This is the direct route itself", ""
+    elif time_saved > 0:
+        saved_value = f"{time_saved:.1f} min"
+        saved_sub = f"faster than the direct route · {zones_avoided} jam{'s' if zones_avoided != 1 else ''} avoided"
+        saved_tone = "good"
+    elif time_saved == 0:
+        saved_value, saved_sub, saved_tone = "0 min", "Same time as the direct route", ""
+    else:
+        saved_value = f"{time_saved:.1f} min"
+        saved_sub = "slower than the direct route"
+        saved_tone = "bad"
+
+    if batch_summary["all_compliant"]:
+        ontime_value = f"{compliant_count}/{n_deliveries}"
+        ontime_sub, ontime_tone = f"All delivered within {SLA_LIMIT_MIN:.0f} min", "good"
+    else:
+        ontime_value = f"{compliant_count}/{n_deliveries}"
+        ontime_sub = f"Late — longest wait {batch_summary['max_wait_min']:.0f} min"
+        ontime_tone = "bad"
+
+    st.markdown(
+        '<div class="kpi-grid">'
+        + html_kpi("⏱️", "Total trip time", f"{batch_summary['total_duration_min']:.0f} min",
+                   f"{n_deliveries} {'order' if n_deliveries == 1 else 'orders'} in this trip")
+        + (
+            html_kpi("📏", "Grid distance", f"{grid_blocks} blocks", "Shortest possible path on the AI's grid")
+            if use_custom
+            else html_kpi("📏", "Distance", f"{batch_summary['total_km']:.1f} km",
+                          f"First delivery leg: {order_meta['distance_km']:.1f} km")
+        )
+        + html_kpi("⚡", "Time saved", saved_value, saved_sub, saved_tone)
+        + html_kpi("✅" if batch_summary["all_compliant"] else "⚠️", "On time", ontime_value, ontime_sub, ontime_tone)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ---- Map + trip plan ----
+    col_map, col_plan = st.columns([2.15, 1], gap="medium")
 
     with col_map:
-        ctrl_1, ctrl_2, _ = st.columns([1.3, 1.3, 1.4])
-        tile_style = ctrl_1.selectbox(
-            "Basemap Style",
-            options=["Standard (OpenStreetMap)", "Clean Street (Esri)", "Minimal Light (Esri)"],
-            index=0,
-            label_visibility="collapsed",
-            help="Switch the underlying street map tile provider.",
-        )
-        show_hotspots = ctrl_2.checkbox(
-            "Show Heavy Traffic Zones",
-            value=True,
-            help="Toggle display of heavy traffic road sectors (2.0x travel delay) on the map.",
-        )
-
+        if use_custom:
+            st.markdown(
+                '<div class="note warm"><span class="note-icon">🧪</span><div><b>Custom scenario.</b> '
+                "The route, times and on-time result come from your traffic, weather and trip settings. "
+                f"The street map borrows the locations of a sample real order (#{order_meta['order_id']}) "
+                "only to illustrate the route, so the pins don't move when you change the trip length."
+                "</div></div>",
+                unsafe_allow_html=True,
+            )
         fmap = build_route_map(
             order_meta,
             sims,
@@ -1332,281 +1519,258 @@ with tab_map:
             dropoff_sequence=dropoff_sequence,
             diff_restaurants=diff_restaurants,
         )
-        components.html(fmap.get_root().render(), height=500)
+        components.html(fmap.get_root().render(), height=540)
         st.markdown(
-            """
-            <div style="
-                display: flex;
-                flex-wrap: wrap;
-                align-items: center;
-                justify-content: space-between;
-                gap: 12px;
-                background: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                border-radius: 8px;
-                padding: 8px 14px;
-                margin-top: -6px;
-                margin-bottom: 10px;
-                font-size: 0.82rem;
-                color: #1E293B;
-            ">
-                <span style="font-weight: 700; color: #0F172A;">Map Legend:</span>
-                <span style="display:inline-flex;align-items:center;gap:6px;">
-                    <span style="display:inline-block;width:18px;height:3.5px;background:#2563EB;border-radius:2px;"></span>
-                    Optimized RL Route
-                </span>
-                <span style="display:inline-flex;align-items:center;gap:6px;">
-                    <span style="display:inline-block;width:18px;height:0;border-top:3px dashed #16A34A;"></span>
-                    Pickup Leg (Rider &rarr; Store)
-                </span>
-                <span style="display:inline-flex;align-items:center;gap:6px;">
-                    <span style="display:inline-block;width:18px;height:0;border-top:2.5px dashed #64748B;"></span>
-                    Direct Baseline Route
-                </span>
-                <span>🛵 Rider Start</span>
-                <span>🏪 Store Pickup</span>
-                <span>🏠 Customer Drop-off</span>
-                <span style="display:inline-flex;align-items:center;gap:4px;">
-                    <span style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;background:#F59E0B;color:#fff;border-radius:50%;font-size:10px;font-weight:700;">!</span>
-                    Heavy Traffic (2x Delay)
-                </span>
-            </div>
-            """,
+            '<div class="real-sim">'
+            '<span><span class="tag real">Real</span>Streets, restaurant & customer locations, batched orders</span>'
+            '<span><span class="tag sim">Simulated</span>Traffic jams, rider start point, trip times</span>'
+            "<span>ℹ️ The AI plans on a 10×10 grid of city blocks, which is fitted onto the real roads to draw the route.</span>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
-        with st.expander("Model Diagnostics (10x10 MDP State Grid & Step Log)", expanded=False):
-            d_col1, d_col2 = st.columns([2.0, 1.2])
-            with d_col1:
-                g_cols = st.columns(min(len(sims), 3))
-                for idx, (m_name, sim) in enumerate(sims.items()):
-                    with g_cols[idx % len(g_cols)]:
-                        fig = draw_grid_diagnostic(sim, m_name)
-                        st.pyplot(fig)
-                        plt.close(fig)
-            with d_col2:
-                st.markdown("**Step-by-Step Grid Actions**")
-                st.caption(f"Model: {primary_model} ({primary_sim['steps']} steps, Reward: {primary_sim['reward']})")
-                st.code(" -> ".join(primary_sim["actions"]) or "Reached destination", language="text")
+    with col_plan:
+        stops = []
 
-    with col_summary:
-        # Build clean vertical step-by-step dispatch timeline HTML
-        timeline_steps = []
-        step_counter = 1
-        if include_pickup_leg:
-            timeline_steps.append(
-                f'<div class="timeline-step"><div><span class="timeline-badge">{step_counter}. 🛵 Rider Origin</span>'
-                f'<div class="timeline-meta">Dispatched in {order_meta["city"]} &middot; t = 0.0 min</div></div></div>'
+        def add_stop(kind: str, icon: str, title: str, meta: str, t_min: float, pill: str = "") -> None:
+            stops.append(
+                f'<div class="stop"><div class="stop-icon {kind}">{icon}</div><div class="stop-body">'
+                f'<div class="stop-row"><span class="stop-title">{title}{pill}</span>'
+                f'<span class="stop-time">{t_min:.0f} min</span></div>'
+                f'<div class="stop-meta">{meta}</div></div></div>'
             )
-            step_counter += 1
+
+        if include_pickup_leg:
+            add_stop("rider", "🛵", "Rider sets off", f"Starting in {order_meta['city']}", 0.0)
 
         if diff_restaurants or n_deliveries == 1:
             for bo in batch_orders:
-                timeline_steps.append(
-                    f'<div class="timeline-step"><div><span class="timeline-badge">{step_counter}. 🏪 Pickup Rest {bo["tag"]}</span>'
-                    f'<div class="timeline-meta">Order #{bo["order_id"]} ({bo["order_type"]}) &middot; ETA +{bo["pickup_min"]:.1f}m</div></div></div>'
-                )
-                step_counter += 1
+                add_stop("store", "🏪", f"Pick up order {bo['tag']}",
+                         f"#{bo['order_id']} · {bo['order_type']}", bo["pickup_min"])
         else:
-            all_ids = ", ".join(f"#{b['order_id']}" for b in batch_orders)
-            timeline_steps.append(
-                f'<div class="timeline-step"><div><span class="timeline-badge">{step_counter}. 🏪 Pickup Rest A (All Orders)</span>'
-                f'<div class="timeline-meta">Orders {all_ids} &middot; ETA +0.0m</div></div></div>'
-            )
-            step_counter += 1
+            ids = ", ".join(b["tag"] for b in batch_orders)
+            add_stop("store", "🏪", f"Pick up orders {ids}", "All from the same restaurant", 0.0)
 
         for d_stop in dropoff_sequence:
-            sla_label = "Compliant" if d_stop["sla_compliant"] else "Breached"
-            timeline_steps.append(
-                f'<div class="timeline-step"><div><span class="timeline-badge">{step_counter}. 🏠 Dropoff Cust {d_stop["tag"]}</span>'
-                f'<div class="timeline-meta">Order #{d_stop["order_id"]} &middot; ETA +{d_stop["dropoff_min"]:.1f}m (Wait: {d_stop["wait_min"]:.1f}m &middot; {sla_label})</div></div></div>'
+            pill = (
+                '<span class="pill good">On time</span>'
+                if d_stop["sla_compliant"]
+                else '<span class="pill bad">Late</span>'
             )
-            step_counter += 1
+            add_stop("home", "🏠", f"Deliver order {d_stop['tag']}",
+                     f"Food in transit {d_stop['wait_min']:.0f} min", d_stop["dropoff_min"], pill)
 
-        timeline_html = f'<div class="timeline-box">{"".join(timeline_steps)}</div>'
+        facts = [
+            ("Order", f"#{order_meta['order_id']}"),
+            ("Rider rating", f"⭐ {order_meta['rider_rating']:.1f}"),
+            ("Delivery promise", f"≤ {SLA_LIMIT_MIN:.0f} min after pickup"),
+        ]
+        facts_html = "".join(f'<div class="fact"><span>{k}</span><span>{v}</span></div>' for k, v in facts)
 
-        with st.container(border=True):
-            st.markdown("##### Order Summary & Dispatch Timeline")
-            summary_items = [
-                ("Primary Order ID", f"#{order_meta['order_id']}"),
-                ("Operating Zone", f"{order_meta['city']} ({order_meta['area_type']})"),
-                ("Vehicle & Weather", f"{order_meta['vehicle_type']} · {WEATHER_LABELS[env_ref.weather]}"),
-                ("Traffic Condition", TRAFFIC_LABELS[env_ref.traffic]),
-                ("SLA Limit", f"<= {SLA_LIMIT_MIN:.0f} min from pickup"),
-            ]
-            html_rows = "".join(
-                f'<div class="kv-row"><span class="kv-key">{k}</span><span class="kv-val">{v}</span></div>'
-                for k, v in summary_items
-            )
-            st.markdown(html_rows, unsafe_allow_html=True)
-            st.markdown("**Step-by-Step Dispatch Sequence**")
-            st.markdown(timeline_html, unsafe_allow_html=True)
+        st.markdown(
+            '<div class="panel"><div class="panel-title">Trip plan</div>'
+            '<div class="panel-sub">Stops in order, with minutes since the trip started</div>'
+            f'<div class="stops">{"".join(stops)}</div>'
+            f'<div class="facts">{facts_html}</div></div>',
+            unsafe_allow_html=True,
+        )
 
-        with st.container(border=True):
-            st.markdown("##### SLA Compliance Tracker (<= 45 min Window)")
-            styled_sla = sla_df.style.map(style_sla_status, subset=["SLA Status"])
-            st.dataframe(styled_sla, use_container_width=True, hide_index=True)
-
-        with st.container(border=True):
-            st.markdown("##### Model Comparison (Primary Leg)")
+    # ---- Optional details ----
+    st.write("")
+    if len(sims) > 1:
+        with st.expander(f"How do the {len(sims)} routes on the map compare?", expanded=False):
             comp_rows = []
             for m_name, sim in sims.items():
                 status_label = (
-                    "Compliant"
-                    if sim["sla_compliant"]
-                    else ("Breached" if sim["delivered"] else "Timeout")
+                    "On time" if sim["sla_compliant"] else ("Late" if sim["delivered"] else "Not delivered")
                 )
                 comp_rows.append({
-                    "Model": m_name,
-                    "Time (min)": f"{sim['minutes']:.1f}",
-                    "Heavy Traffic": sim["hotspot_hits"],
-                    "SLA Status": status_label,
+                    "Model": model_label(m_name),
+                    "Time (min)": round(sim["minutes"], 1),
+                    "Traffic jams hit": sim["hotspot_hits"],
+                    "Result": status_label,
                 })
-            comp_df = pd.DataFrame(comp_rows)
-            styled_comp = comp_df.style.map(style_sla_status, subset=["SLA Status"])
-            st.dataframe(styled_comp, use_container_width=True, hide_index=True)
+            st.dataframe(
+                pd.DataFrame(comp_rows).style.map(
+                    lambda v: style_sla_status("Compliant" if v == "On time" else ("Breached" if v else "")),
+                    subset=["Result"],
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    with st.expander("How the AI sees the city (10×10 grid view)", expanded=False):
+        st.caption(
+            "The models learn on a simplified 10×10 grid of city blocks. Red cells are traffic jams, "
+            "R is the restaurant and C is the customer."
+        )
+        g_cols = st.columns(min(len(sims), 3))
+        for idx, (m_name, sim) in enumerate(sims.items()):
+            with g_cols[idx % len(g_cols)]:
+                fig = draw_grid_diagnostic(sim, model_label(m_name))
+                st.pyplot(fig)
+                plt.close(fig)
+        st.caption(
+            f"Moves taken by {model_label(primary_model)} ({primary_sim['steps']} steps, reward {primary_sim['reward']}):"
+        )
+        st.code(" → ".join(primary_sim["actions"]) or "Already at destination", language="text")
 
 # ------------------------------------------------------------------------------
-# TAB 2: ALGORITHM VALIDATION (LIVE BENCHMARK vs. BASELINES)
+# TAB 2: COMPARE MODELS
 # ------------------------------------------------------------------------------
-with tab_val:
-    st.subheader("Algorithm Validation: RL Models vs. Traditional Baselines")
-    st.caption(
-        "Side-by-side empirical validation measuring Travel Time/Distance Saved vs. Direct Route, "
-        "Compute Latency (milliseconds per order), and 45-Minute SLA Adherence."
+with tab_compare:
+    section(
+        "How well does each model do?",
+        "Every model routes the same set of real test orders it has never seen before. "
+        "Higher on-time rate and lower trip time are better.",
     )
 
-    val_col1, _ = st.columns([1.2, 2.8])
-    n_val_eps = val_col1.selectbox(
-        "Validation Sample Size",
+    n_val_eps = st.segmented_control(
+        "Test orders",
         options=[100, 250, 500],
-        index=0,
-        format_func=lambda n: f"{n} Unseen Zomato Test Orders",
-        help="Number of held-out test episodes used to compute the validation matrix.",
+        default=100,
+        format_func=lambda n: f"{n} orders",
+        help="More orders give more reliable results but take longer to compute.",
+    ) or 100
+
+    with st.spinner(f"Testing every model on {n_val_eps} orders..."):
+        val_df = run_validation_benchmark(int(n_val_eps))
+
+    val_num = val_df.copy()
+    val_num["On-time rate (%)"] = val_num["SLA Adherence (<=45m)"].str.rstrip("%").astype(float)
+    val_num["Delivered (%)"] = val_num["Delivery Rate"].str.rstrip("%").astype(float)
+    val_num["Model"] = val_num["Algorithm"].map(model_label)
+
+    best_ontime = val_num.sort_values(["On-time rate (%)", "Avg Duration (min)"], ascending=[False, True]).iloc[0]
+    delivered = val_num[val_num["Delivered (%)"] >= 99.0]
+    fastest = (delivered if not delivered.empty else val_num).sort_values("Avg Duration (min)").iloc[0]
+    quickest_cpu = val_num.sort_values("Compute Time (ms/order)").iloc[0]
+
+    st.markdown(
+        '<div class="kpi-grid">'
+        + html_kpi("🏆", "Most on-time", best_ontime["Model"],
+                   f"{best_ontime['On-time rate (%)']:.0f}% of orders within {SLA_LIMIT_MIN:.0f} min", "good", text=True)
+        + html_kpi("⏱️", "Shortest trips", fastest["Model"],
+                   f"{fastest['Avg Duration (min)']:.1f} min on average", text=True)
+        + html_kpi("⚙️", "Fastest to compute", quickest_cpu["Model"],
+                   f"{quickest_cpu['Compute Time (ms/order)']:.2f} ms per order", text=True)
+        + "</div>",
+        unsafe_allow_html=True,
     )
 
-    val_df = run_validation_benchmark(int(n_val_eps))
-    st.dataframe(val_df, use_container_width=True, hide_index=True)
+    ch1, ch2 = st.columns(2, gap="medium")
+    with ch1:
+        st.markdown("**On-time rate (%)**")
+        st.altair_chart(bar_chart(val_num, "On-time rate (%)", "#EA580C", ".0f", False), use_container_width=True)
+    with ch2:
+        st.markdown("**Average trip time (min)**")
+        st.altair_chart(bar_chart(val_num, "Avg Duration (min)", "#2563EB", ".1f", True), use_container_width=True)
 
-    v1, v2, v3 = st.columns(3)
-    v1.metric(
-        "Best Single RL Model (Dueling DDQN)",
-        "~0.35 ms / order",
-        delta="5x faster compute than Dijkstra full-map search",
-        delta_color="normal",
-        help="Average neural network forward-pass execution latency per order.",
-        border=True,
-    )
-    v2.metric(
-        "Fastest Model (Tabular Q-Learning)",
-        "~0.04 ms / order",
-        delta="O(1) Q-table lookup latency",
-        delta_color="normal",
-        help="Average hash-table lookup latency per order for Tabular Q-Learning.",
-        border=True,
-    )
-    v3.metric(
-        "SLA Adherence (<= 45 min)",
-        val_df.loc[val_df["Algorithm"] == "Dueling Double DQN (DDQN)", "SLA Adherence (<=45m)"].iloc[0]
-        if "Dueling Double DQN (DDQN)" in val_df["Algorithm"].values
-        else "95.0%",
-        delta="vs. Direct Route cutting through heavy traffic zones",
-        delta_color="normal",
-        help="Percentage of test orders delivered within the 45-minute SLA window.",
-        border=True,
-    )
+    with st.expander("See the full results table"):
+        st.dataframe(val_df.assign(Algorithm=val_df["Algorithm"].map(model_label)), use_container_width=True, hide_index=True)
 
-# ------------------------------------------------------------------------------
-# TAB 3: MODEL BENCHMARK (PART A & B)
-# ------------------------------------------------------------------------------
-with tab_bench:
-    st.subheader("Full 500-Order Benchmark & Training Progression")
+    section("Offline benchmark & training", "Results saved by the training scripts (500 test orders).")
     master_csv = MASTER_RESULT_DIR / "master_all_models_results.csv"
     fallback_csv = DQN_RESULT_DIR / "results.csv"
     csv_to_show = master_csv if master_csv.exists() else fallback_csv
-
-    if csv_to_show.exists():
-        df_m = pd.read_csv(csv_to_show)
-        fmt = {
-            "success_rate": "{:.1%}",
-            "avg_reward": "{:.2f}",
-            "avg_steps": "{:.2f}",
-            "avg_delivery_time_min": "{:.2f}",
-        }
-        if "on_time_rate" in df_m.columns:
-            fmt["on_time_rate"] = "{:.1%}"
-        if "std_reward" in df_m.columns:
-            fmt["std_reward"] = "{:.2f}"
-        if "route_efficiency" in df_m.columns:
-            fmt["route_efficiency"] = "{:.1%}"
-        if "avg_hotspot_steps" in df_m.columns:
-            fmt["avg_hotspot_steps"] = "{:.2f}"
-        st.dataframe(df_m.style.format(fmt), use_container_width=True, hide_index=True)
-
     master_img = MASTER_RESULT_DIR / "master_comparison_chart.png"
-    if master_img.exists():
-        st.image(str(master_img), use_container_width=True)
+    curves = [
+        (QL_RESULT_DIR / "ql_learning_curves.png", "Q-Learning"),
+        (DQN_RESULT_DIR / "dqn_learning_curve_v2.png", "Deep Q-Network v2"),
+        (DDQN_RESULT_DIR / "ddqn_learning_curves.png", "Double DQN vs. Dueling DDQN"),
+    ]
+    curves = [(p, c) for p, c in curves if p.exists()]
 
-    st.divider()
-    st.subheader("Training Curves (Part A)")
-    c_ql, c_dqn, c_ddqn = st.columns(3)
-    if (QL_RESULT_DIR / "ql_learning_curves.png").exists():
-        c_ql.image(str(QL_RESULT_DIR / "ql_learning_curves.png"), caption="Tabular Q-Learning", use_container_width=True)
-    if (DQN_RESULT_DIR / "dqn_learning_curve_v2.png").exists():
-        c_dqn.image(str(DQN_RESULT_DIR / "dqn_learning_curve_v2.png"), caption="Deep Q-Network (DQN v2)", use_container_width=True)
-    if (DDQN_RESULT_DIR / "ddqn_learning_curves.png").exists():
-        c_ddqn.image(str(DDQN_RESULT_DIR / "ddqn_learning_curves.png"), caption="Double DQN vs. Dueling DDQN", use_container_width=True)
+    if not csv_to_show.exists() and not master_img.exists() and not curves:
+        st.info("No saved results yet. Run `python evaluate.py` and the training scripts to generate them.")
 
-# ------------------------------------------------------------------------------
-# TAB 4: MODEL TUNING & ROBUSTNESS (PART B)
-# ------------------------------------------------------------------------------
-with tab_tuning:
-    st.subheader("Hyperparameter Tuning, Regularization & Stress Testing")
+    if master_img.exists() or csv_to_show.exists():
+        with st.expander("Benchmark chart and table", expanded=master_img.exists()):
+            if master_img.exists():
+                st.image(str(master_img), use_container_width=True)
+            if csv_to_show.exists():
+                df_m = pd.read_csv(csv_to_show)
+                fmt = {
+                    "success_rate": "{:.1%}", "avg_reward": "{:.2f}", "avg_steps": "{:.2f}",
+                    "avg_delivery_time_min": "{:.2f}", "on_time_rate": "{:.1%}", "std_reward": "{:.2f}",
+                    "route_efficiency": "{:.1%}", "avg_hotspot_steps": "{:.2f}",
+                }
+                fmt = {k: v for k, v in fmt.items() if k in df_m.columns}
+                st.dataframe(df_m.style.format(fmt), use_container_width=True, hide_index=True)
 
-    if (DQN_RESULT_DIR / "part_b_analysis.png").exists():
-        st.image(str(DQN_RESULT_DIR / "part_b_analysis.png"), use_container_width=True)
-
-    col1, col2 = st.columns(2)
-    if (QL_RESULT_DIR / "ql_part_b_tuning.csv").exists():
-        with col1:
-            st.markdown("##### Q-Learning Parameter Tuning")
-            st.dataframe(pd.read_csv(QL_RESULT_DIR / "ql_part_b_tuning.csv"), use_container_width=True, hide_index=True)
-
-    if (DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv").exists():
-        with col2:
-            st.markdown("##### Dueling DDQN Regularization & Tuning")
-            st.dataframe(pd.read_csv(DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv"), use_container_width=True, hide_index=True)
-
-    if (MASTER_RESULT_DIR / "missing_data_comparison.csv").exists():
-        st.divider()
-        st.markdown("##### Missing-Data Imputation Comparison")
-        m_c1, m_c2 = st.columns([1.3, 1])
-        m_c1.dataframe(pd.read_csv(MASTER_RESULT_DIR / "missing_data_comparison.csv"), use_container_width=True, hide_index=True)
-        if (MASTER_RESULT_DIR / "missing_data_comparison.png").exists():
-            m_c2.image(str(MASTER_RESULT_DIR / "missing_data_comparison.png"), use_container_width=True)
-
-    if (DQN_RESULT_DIR / "part_b_robustness_results.csv").exists():
-        st.divider()
-        st.markdown("##### Scenario Stress Testing")
-        st.dataframe(pd.read_csv(DQN_RESULT_DIR / "part_b_robustness_results.csv"), use_container_width=True, hide_index=True)
+    if curves:
+        with st.expander("Training curves"):
+            cols = st.columns(len(curves))
+            for col, (p, cap) in zip(cols, curves):
+                col.image(str(p), caption=cap, use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# TAB 5: DATASET & ERROR ANALYSIS
+# TAB 3: RESEARCH DETAILS
 # ------------------------------------------------------------------------------
-with tab_data:
-    st.subheader("Error & Congestion Analysis")
-    if (ERR_RESULT_DIR / "error_analysis.png").exists():
-        st.image(str(ERR_RESULT_DIR / "error_analysis.png"), use_container_width=True)
-    if (ERR_RESULT_DIR / "hotspot_analysis.csv").exists():
-        st.markdown("##### Mean Congestion Steps by Traffic Level")
-        st.dataframe(pd.read_csv(ERR_RESULT_DIR / "hotspot_analysis.csv"), use_container_width=True, hide_index=True)
+with tab_research:
+    section(
+        "Research details",
+        "Tuning, robustness tests and data analysis behind the models. Open any section to explore.",
+    )
 
-    st.divider()
-    st.subheader("Dataset Cleaning & Exploration")
-    if (BASE_DIR / "data" / "cleaning_log.csv").exists():
-        st.dataframe(pd.read_csv(BASE_DIR / "data" / "cleaning_log.csv"), use_container_width=True, hide_index=True)
-    if EDA_DIR.exists():
-        png_files = sorted(EDA_DIR.glob("*.png"))
-        cols = st.columns(3)
-        for idx, p in enumerate(png_files):
-            cols[idx % 3].image(str(p), caption=p.stem.replace("_", " "), use_container_width=True)
+    any_shown = False
+
+    tuning_files = [
+        (DQN_RESULT_DIR / "part_b_analysis.png", None),
+        (QL_RESULT_DIR / "ql_part_b_tuning.csv", "Q-Learning settings"),
+        (DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv", "Dueling DDQN settings"),
+    ]
+    if any(p.exists() for p, _ in tuning_files):
+        any_shown = True
+        with st.expander("⚙️  Hyperparameter tuning & regularization", expanded=True):
+            if tuning_files[0][0].exists():
+                st.image(str(tuning_files[0][0]), use_container_width=True)
+            for p, title in tuning_files[1:]:
+                if p.exists():
+                    st.markdown(f"**{title}**")
+                    st.dataframe(pd.read_csv(p), use_container_width=True, hide_index=True)
+
+    md_csv = MASTER_RESULT_DIR / "missing_data_comparison.csv"
+    md_png = MASTER_RESULT_DIR / "missing_data_comparison.png"
+    if md_csv.exists():
+        any_shown = True
+        with st.expander("🧩  Handling missing data"):
+            st.caption("Comparison of strategies for filling in missing values in the dataset.")
+            m_c1, m_c2 = st.columns([1.3, 1])
+            m_c1.dataframe(pd.read_csv(md_csv), use_container_width=True, hide_index=True)
+            if md_png.exists():
+                m_c2.image(str(md_png), use_container_width=True)
+
+    rob_csv = DQN_RESULT_DIR / "part_b_robustness_results.csv"
+    if rob_csv.exists():
+        any_shown = True
+        with st.expander("🌪️  Stress tests (extreme traffic & weather)"):
+            st.dataframe(pd.read_csv(rob_csv), use_container_width=True, hide_index=True)
+
+    err_png = ERR_RESULT_DIR / "error_analysis.png"
+    hot_csv = ERR_RESULT_DIR / "hotspot_analysis.csv"
+    if err_png.exists() or hot_csv.exists():
+        any_shown = True
+        with st.expander("🔍  Where the models go wrong"):
+            if err_png.exists():
+                st.image(str(err_png), use_container_width=True)
+            if hot_csv.exists():
+                st.markdown("**Average steps spent in traffic jams, by traffic level**")
+                st.dataframe(pd.read_csv(hot_csv), use_container_width=True, hide_index=True)
+
+    clean_log = BASE_DIR / "data" / "cleaning_log.csv"
+    png_files = sorted(EDA_DIR.glob("*.png")) if EDA_DIR.exists() else []
+    if clean_log.exists() or png_files:
+        any_shown = True
+        with st.expander("📦  The dataset (cleaning & exploration)"):
+            if clean_log.exists():
+                st.markdown("**Cleaning steps**")
+                st.dataframe(pd.read_csv(clean_log), use_container_width=True, hide_index=True)
+            if png_files:
+                st.markdown("**Exploration charts**")
+                cols = st.columns(3)
+                for idx, p in enumerate(png_files):
+                    cols[idx % 3].image(str(p), caption=p.stem.replace("_", " "), use_container_width=True)
+
+    if not any_shown:
+        st.info("No research outputs found yet. Run the training and analysis scripts to generate them.")
