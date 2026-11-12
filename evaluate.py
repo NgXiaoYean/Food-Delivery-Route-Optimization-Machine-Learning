@@ -24,13 +24,19 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
-import torch
-
 from env import DeliveryEnv, load_orders
 from shared import evaluate_policy, split_orders
-from dqn.dqn_v1 import QNetwork as QNetV1, dqn_policy as dqn_policy_v1
-from dqn.dqn_v2 import QNetwork as QNetV2, dqn_policy as dqn_policy_v2, features as features_v2
-from dqn.dqn_v3 import OBS_DIM_V3, dqn_policy_v3, features_v3
+
+try:
+    import torch
+    from dqn.dqn_v1 import QNetwork as QNetV1, dqn_policy as dqn_policy_v1
+    from dqn.dqn_v2 import QNetwork as QNetV2, dqn_policy as dqn_policy_v2, features as features_v2
+    from dqn.dqn_v3 import OBS_DIM_V3, dqn_policy_v3, features_v3
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    QNetV1 = dqn_policy_v1 = QNetV2 = dqn_policy_v2 = features_v2 = OBS_DIM_V3 = dqn_policy_v3 = features_v3 = None
+    TORCH_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
@@ -114,18 +120,19 @@ def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, ddqn_net):
             q_tab = ql_agent.q_table[ql_agent.extract_state(env)]
             blended += 0.10 * norm(q_tab)
 
-        # 2. DQN (v2 + v3) contribution
-        with torch.no_grad():
-            if dqn_v2_net is not None:
-                q_v2 = dqn_v2_net(torch.tensor(features_v2(obs)).unsqueeze(0)).squeeze(0).numpy()
-                blended += 0.15 * norm(q_v2)
-            if dqn_v3_net is not None:
-                q_v3 = dqn_v3_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
-                blended += 0.05 * norm(q_v3)
-            # 3. Dueling Double DQN contribution
-            if ddqn_net is not None:
-                q_ddqn = ddqn_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
-                blended += 0.70 * norm(q_ddqn)
+        # 2. DQN (v2 + v3) & DDQN contribution
+        if torch is not None:
+            with torch.no_grad():
+                if dqn_v2_net is not None and features_v2 is not None:
+                    q_v2 = dqn_v2_net(torch.tensor(features_v2(obs)).unsqueeze(0)).squeeze(0).numpy()
+                    blended += 0.15 * norm(q_v2)
+                if dqn_v3_net is not None and features_v3 is not None:
+                    q_v3 = dqn_v3_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
+                    blended += 0.05 * norm(q_v3)
+                # 3. Dueling Double DQN contribution
+                if ddqn_net is not None and features_v3 is not None:
+                    q_ddqn = ddqn_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
+                    blended += 0.70 * norm(q_ddqn)
 
         # Boundary safety & short-term oscillation filter
         r, c = env.pos

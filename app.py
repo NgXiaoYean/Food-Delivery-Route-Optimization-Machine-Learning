@@ -21,8 +21,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
-import torch
-
 from env import DeliveryEnv, TRAFFIC_MAP, WEATHER_MAP, haversine_km, load_orders
 from shared import split_orders
 from evaluate import (
@@ -31,9 +29,17 @@ from evaluate import (
     planner_policy,
     random_policy,
 )
-from dqn.dqn_v1 import QNetwork as QNetV1, dqn_policy as dqn_policy_v1
-from dqn.dqn_v2 import QNetwork as QNetV2, dqn_policy as dqn_policy_v2
-from dqn.dqn_v3 import OBS_DIM_V3, dqn_policy_v3
+
+try:
+    import torch
+    from dqn.dqn_v1 import QNetwork as QNetV1, dqn_policy as dqn_policy_v1
+    from dqn.dqn_v2 import QNetwork as QNetV2, dqn_policy as dqn_policy_v2
+    from dqn.dqn_v3 import OBS_DIM_V3, dqn_policy_v3
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    QNetV1 = dqn_policy_v1 = QNetV2 = dqn_policy_v2 = OBS_DIM_V3 = dqn_policy_v3 = None
+    TORCH_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
@@ -283,38 +289,39 @@ def load_system_resources():
             pass
 
     m1, m2, m3 = None, None, None
-    p1 = DQN_RESULT_DIR / "dqn_model_v1.pt"
-    if p1.exists():
-        m1 = QNetV1()
-        m1.load_state_dict(torch.load(p1, map_location="cpu", weights_only=True))
-        m1.eval()
-
-    p2 = DQN_RESULT_DIR / "dqn_model_v2.pt"
-    if p2.exists():
-        m2 = QNetV2()
-        m2.load_state_dict(torch.load(p2, map_location="cpu", weights_only=True))
-        m2.eval()
-
-    p3 = DQN_RESULT_DIR / "dqn_model_v3.pt"
-    if p3.exists():
-        m3 = QNetV2(obs_dim=OBS_DIM_V3)
-        m3.load_state_dict(torch.load(p3, map_location="cpu", weights_only=True))
-        m3.eval()
-
     ddqn_net = None
-    ddqn_ckpt = DDQN_RESULT_DIR / "ddqn_model_best.pt"
-    tuned_fallback = DQN_RESULT_DIR / "dqn_model_tuned.pt"
-    if ddqn_ckpt.exists():
-        try:
-            from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
-            ddqn_net = load_best_ddqn(ddqn_ckpt)
-        except Exception:
-            pass
-    elif tuned_fallback.exists():
-        ckpt = torch.load(tuned_fallback, map_location="cpu", weights_only=False)
-        ddqn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
-        ddqn_net.load_state_dict(ckpt["state_dict"])
-        ddqn_net.eval()
+    if TORCH_AVAILABLE and torch is not None:
+        p1 = DQN_RESULT_DIR / "dqn_model_v1.pt"
+        if p1.exists() and QNetV1 is not None:
+            m1 = QNetV1()
+            m1.load_state_dict(torch.load(p1, map_location="cpu", weights_only=True))
+            m1.eval()
+
+        p2 = DQN_RESULT_DIR / "dqn_model_v2.pt"
+        if p2.exists() and QNetV2 is not None:
+            m2 = QNetV2()
+            m2.load_state_dict(torch.load(p2, map_location="cpu", weights_only=True))
+            m2.eval()
+
+        p3 = DQN_RESULT_DIR / "dqn_model_v3.pt"
+        if p3.exists() and QNetV2 is not None:
+            m3 = QNetV2(obs_dim=OBS_DIM_V3)
+            m3.load_state_dict(torch.load(p3, map_location="cpu", weights_only=True))
+            m3.eval()
+
+        ddqn_ckpt = DDQN_RESULT_DIR / "ddqn_model_best.pt"
+        tuned_fallback = DQN_RESULT_DIR / "dqn_model_tuned.pt"
+        if ddqn_ckpt.exists():
+            try:
+                from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
+                ddqn_net = load_best_ddqn(ddqn_ckpt)
+            except Exception:
+                pass
+        elif tuned_fallback.exists() and QNetV2 is not None:
+            ckpt = torch.load(tuned_fallback, map_location="cpu", weights_only=False)
+            ddqn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
+            ddqn_net.load_state_dict(ckpt["state_dict"])
+            ddqn_net.eval()
 
     if ddqn_net is not None:
         try:
