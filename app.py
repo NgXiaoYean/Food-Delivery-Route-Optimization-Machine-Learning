@@ -846,6 +846,37 @@ def make_pin_icon(symbol: str, label: str, bg_color: str, border_color: str) -> 
     return folium.DivIcon(html=html, icon_size=(120, 28), icon_anchor=(60, 14))
 
 
+def synthetic_rider_point(rest_lat, rest_lon, cust_lat, cust_lon):
+    """Fallback point a little behind the restaurant (opposite the customer). Not checked against land."""
+    d_lat = (cust_lat - rest_lat) * 0.32
+    d_lon = (cust_lon - rest_lon) * 0.32
+    return rest_lat - d_lat + (d_lon * 0.35), rest_lon - d_lon - (d_lat * 0.35)
+
+
+def pick_rider_start(order_meta: dict, test_meta: pd.DataFrame, min_km: float = 0.8, max_km: float = 3.0):
+    """Start the rider at a real past drop-off address 0.8-3 km from the restaurant in the same city
+    (riders usually wait near their last delivery). Real addresses keep the pin on land instead of in a
+    lake or river; among the candidates, pick the one nearest the old synthetic point so the choice is
+    stable and the rider still approaches from the side away from the customer."""
+    rest_lat, rest_lon = float(order_meta["rest_lat"]), float(order_meta["rest_lon"])
+    target_lat, target_lon = synthetic_rider_point(
+        rest_lat, rest_lon, float(order_meta["cust_lat"]), float(order_meta["cust_lon"])
+    )
+    city = test_meta[test_meta["city_name"] == order_meta["city"]]
+    pts = city[["Delivery_location_latitude", "Delivery_location_longitude"]].drop_duplicates()
+    if pts.empty:
+        return None
+    d_rest = haversine_km(rest_lat, rest_lon, pts.iloc[:, 0], pts.iloc[:, 1])
+    cand = pts[(d_rest >= min_km) & (d_rest <= max_km)]
+    if cand.empty:
+        cand = pts[d_rest > 0.3]
+    if cand.empty:
+        return None
+    d_target = haversine_km(target_lat, target_lon, cand.iloc[:, 0], cand.iloc[:, 1])
+    best = cand.iloc[int(np.argmin(np.asarray(d_target)))]
+    return float(best.iloc[0]), float(best.iloc[1])
+
+
 def build_route_map(
     order_meta: dict,
     sims: dict,
@@ -856,6 +887,7 @@ def build_route_map(
     batch_orders: list = None,
     dropoff_sequence: list = None,
     diff_restaurants: bool = True,
+    rider_start: tuple = None,
 ):
     first_sim = sims[primary_model]
     env = first_sim["env"]
@@ -922,11 +954,14 @@ def build_route_map(
 
     # Leg 0: Rider starting location -> Rest A
     if include_pickup_leg:
-        d_lat = (cust_lat - rest_lat) * 0.32
-        d_lon = (cust_lon - rest_lon) * 0.32
-        rider_lat = rest_lat - d_lat + (d_lon * 0.35)
-        rider_lon = rest_lon - d_lon - (d_lat * 0.35)
+        if rider_start is not None:
+            rider_lat, rider_lon = rider_start
+        else:
+            rider_lat, rider_lon = synthetic_rider_point(rest_lat, rest_lon, cust_lat, cust_lon)
         pickup_coords = fetch_osrm_road_geometry(((rider_lat, rider_lon), (rest_lat, rest_lon)))
+        if len(pickup_coords) > 2:
+            # OSRM's route starts on the nearest drivable road: put the rider pin there
+            rider_lat, rider_lon = pickup_coords[0]
         for lat, lon in pickup_coords:
             all_lats.append(lat)
             all_lons.append(lon)
@@ -1518,6 +1553,7 @@ with tab_map:
             batch_orders=batch_orders,
             dropoff_sequence=dropoff_sequence,
             diff_restaurants=diff_restaurants,
+            rider_start=pick_rider_start(order_meta, test_meta),
         )
         components.html(fmap.get_root().render(), height=540)
         st.markdown(
