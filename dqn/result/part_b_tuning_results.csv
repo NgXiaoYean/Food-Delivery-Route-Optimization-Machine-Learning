@@ -1,0 +1,5 @@
+config,double_dqn,lr,gamma,hidden,target_update,success_rate,avg_reward,avg_steps,avg_delivery_time_min,train_time_s
+Config 1 (Baseline v3 - Standard DQN),False,0.001,0.99,128,500,1.0,28.3172,8.536,30.4482,318.2
+"Config 2 (Double DQN, gamma=0.99)",True,0.001,0.99,128,500,1.0,24.558300000000003,10.118,34.412800000000004,308.6
+"Config 3 (Double DQN, gamma=0.95)",True,0.001,0.95,128,300,1.0,30.1692,8.452,28.865800000000004,248.3
+"Config 4 (Double DQN, lr=5e-4, h=256)",True,0.0005,0.96,256,300,1.0,26.167199999999998,9.254,31.7604,506.4

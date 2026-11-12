@@ -92,6 +92,7 @@ ROUTE_STYLES = {
     "Deep Q-Network (DQN v3)": {"color": "#0D9488", "weight": 4, "dash": None},
     "Tabular Q-Learning": {"color": "#4F46E5", "weight": 4, "dash": None},
     "Deep Q-Network (DQN v1)": {"color": "#7C3AED", "weight": 3, "dash": "4, 4"},
+    "Deep Q-Network (Tuned)": {"color": "#0891B2", "weight": 4, "dash": None},
     "Ensemble (QL + DQN + DDQN)": {"color": "#0F766E", "weight": 4, "dash": None},
 }
 
@@ -101,6 +102,7 @@ MODEL_INFO = {
     "Deep Q-Network (DQN v3)": ("Deep Q-Network v3", "DQN v2 plus a short-range traffic radar."),
     "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
     "Deep Q-Network (DQN v1)": ("Deep Q-Network v1", "Early version using raw map coordinates."),
+    "Deep Q-Network (Tuned)": ("Deep Q-Network (tuned)", "DQN v3 after hyperparameter search (Part B)."),
     "Ensemble (QL + DQN + DDQN)": ("Ensemble (all models)", "Combines the votes of all three AI model families."),
     "Direct Route (Baseline)": ("Direct route", "Heads straight for the customer and ignores traffic."),
     "Shortest-Time Planner (Dijkstra)": ("Shortest-path planner", "Classic map search that sees all traffic in advance."),
@@ -408,7 +410,7 @@ def load_system_resources():
         except Exception:
             pass
 
-    m1, m2, m3 = None, None, None
+    m1, m2, m3, m_tuned = None, None, None, None
     ddqn_net = None
     if TORCH_AVAILABLE and torch is not None:
         p1 = DQN_RESULT_DIR / "dqn_model_v1.pt"
@@ -429,19 +431,25 @@ def load_system_resources():
             m3.load_state_dict(torch.load(p3, map_location="cpu", weights_only=True))
             m3.eval()
 
+        # Best model from the DQN Part B search (dqn/part_b_refine.py). It is a plain or Double DQN
+        # with the standard network, so it is listed as a DQN, not as the Dueling Double DQN.
+        p_tuned = DQN_RESULT_DIR / "dqn_model_tuned.pt"
+        if p_tuned.exists() and QNetV2 is not None:
+            try:
+                ckpt = torch.load(p_tuned, map_location="cpu", weights_only=False)
+                m_tuned = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
+                m_tuned.load_state_dict(ckpt["state_dict"])
+                m_tuned.eval()
+            except Exception:
+                m_tuned = None
+
         ddqn_ckpt = DDQN_RESULT_DIR / "ddqn_model_best.pt"
-        tuned_fallback = DQN_RESULT_DIR / "dqn_model_tuned.pt"
         if ddqn_ckpt.exists():
             try:
                 from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
                 ddqn_net = load_best_ddqn(ddqn_ckpt)
             except Exception:
                 pass
-        elif tuned_fallback.exists() and QNetV2 is not None:
-            ckpt = torch.load(tuned_fallback, map_location="cpu", weights_only=False)
-            ddqn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
-            ddqn_net.load_state_dict(ckpt["state_dict"])
-            ddqn_net.eval()
 
     if ddqn_net is not None:
         try:
@@ -449,10 +457,13 @@ def load_system_resources():
             policies["Dueling Double DQN (DDQN)"] = make_ddqn_policy(ddqn_net)
         except Exception:
             policies["Dueling Double DQN (DDQN)"] = dqn_policy_v3(ddqn_net)
-    if m2 is not None:
-        policies["Deep Q-Network (DQN v2)"] = dqn_policy_v2(m2)
+    # Best DQN first so it is the app's default model (tuned > v3 > v2 on the 500-order test)
+    if m_tuned is not None:
+        policies["Deep Q-Network (Tuned)"] = dqn_policy_v3(m_tuned)
     if m3 is not None:
         policies["Deep Q-Network (DQN v3)"] = dqn_policy_v3(m3)
+    if m2 is not None:
+        policies["Deep Q-Network (DQN v2)"] = dqn_policy_v2(m2)
     if ql_agent is not None:
         from q_learning.q_learning_pipeline import make_ql_policy
         policies["Tabular Q-Learning"] = make_ql_policy(ql_agent)
@@ -1712,7 +1723,9 @@ with tab_compare:
     master_img = MASTER_RESULT_DIR / "master_comparison_chart.png"
     curves = [
         (QL_RESULT_DIR / "ql_learning_curves.png", "Q-Learning"),
+        (DQN_RESULT_DIR / "dqn_learning_curve_v1.png", "Deep Q-Network v1"),
         (DQN_RESULT_DIR / "dqn_learning_curve_v2.png", "Deep Q-Network v2"),
+        (DQN_RESULT_DIR / "dqn_learning_curve_v3.png", "Deep Q-Network v3"),
         (DDQN_RESULT_DIR / "ddqn_learning_curves.png", "Double DQN vs. Dueling DDQN"),
     ]
     curves = [(p, c) for p, c in curves if p.exists()]
@@ -1736,9 +1749,9 @@ with tab_compare:
 
     if curves:
         with st.expander("Training curves"):
-            cols = st.columns(len(curves))
-            for col, (p, cap) in zip(cols, curves):
-                col.image(str(p), caption=cap, use_container_width=True)
+            cols = st.columns(min(3, len(curves)))
+            for idx, (p, cap) in enumerate(curves):
+                cols[idx % len(cols)].image(str(p), caption=cap, use_container_width=True)
 
 # ------------------------------------------------------------------------------
 # TAB 3: RESEARCH DETAILS
@@ -1753,6 +1766,8 @@ with tab_research:
 
     tuning_files = [
         (DQN_RESULT_DIR / "part_b_analysis.png", None),
+        (DQN_RESULT_DIR / "part_b_tuning_results.csv", "DQN settings (validation results per configuration)"),
+        (DQN_RESULT_DIR / "part_b_ensemble_results.csv", "DQN versions compared (500 test orders)"),
         (QL_RESULT_DIR / "ql_part_b_tuning.csv", "Q-Learning settings"),
         (DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv", "Dueling DDQN settings"),
     ]
@@ -1781,7 +1796,26 @@ with tab_research:
     if rob_csv.exists():
         any_shown = True
         with st.expander("🌪️  Stress tests (extreme traffic & weather)"):
-            st.dataframe(pd.read_csv(rob_csv), use_container_width=True, hide_index=True)
+            rob = pd.read_csv(rob_csv)
+            if {"agent", "scenario", "on_time_rate", "avg_delivery_time_min"} <= set(rob.columns):
+                rob["agent"] = rob["agent"].replace({"Tuned DDQN": "DQN (tuned)"})
+                rob["scenario"] = rob["scenario"].str.replace(r"^\d+\.\s*", "", regex=True)
+                st.caption("How each model copes when conditions get worse. Higher on-time rate and lower minutes are better.")
+                s1, s2 = st.columns(2)
+                s1.markdown("**On-time rate (%)**")
+                s1.dataframe(
+                    (rob.pivot(index="agent", columns="scenario", values="on_time_rate") * 100).round(1),
+                    use_container_width=True,
+                )
+                s2.markdown("**Average delivery time (min)**")
+                s2.dataframe(
+                    rob.pivot(index="agent", columns="scenario", values="avg_delivery_time_min").round(1),
+                    use_container_width=True,
+                )
+                with st.popover("Full stress-test table"):
+                    st.dataframe(rob, use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(rob, use_container_width=True, hide_index=True)
 
     err_png = ERR_RESULT_DIR / "error_analysis.png"
     hot_csv = ERR_RESULT_DIR / "hotspot_analysis.csv"
