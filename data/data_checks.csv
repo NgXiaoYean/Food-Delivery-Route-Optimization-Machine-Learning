@@ -1,0 +1,6 @@
+check,rows,value_a,value_b,note
+negative-coordinate rows,431,,,
+  distance after abs() (km): median / 95th pct,,9.1,19.9,other rows: 9.2 / 19.9
+  distance if left negative (km): median / 95th pct,,5897.0,17918.3,impossible for a city delivery
+rows removed: invalid (~0) coordinates,3640,mean time 26.1 min,kept rows 26.4 min,
+rows removed: missing traffic/weather/multi,1462,mean time 24.1 min,kept rows 26.4 min,
