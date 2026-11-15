@@ -1,5 +1,5 @@
 """
-D3QN (Dueling Double DQN) on the MULTI-ORDER environment  --  Part A + Part B + final evidence
+DDQN (Dueling Double DQN) on the MULTI-ORDER environment  --  Part A + Part B + final evidence
 ================================================================================================
 A rider carries 1-3 orders; the agent chooses WHICH customer to reach next and WHICH cells to cross.
 This file is self-contained (it does not import from dqn/), so the old single-order pipeline keeps working.
@@ -285,7 +285,7 @@ def stage_a(ctx, out_dir, base):
     archs = [
         ("Standard DQN (MLP)", dict(dueling=False, double=False)),
         ("Double DQN (MLP)", dict(dueling=False, double=True)),
-        ("Dueling Double DQN (D3QN)", dict(dueling=True, double=True)),
+        ("Dueling Double DQN (DDQN)", dict(dueling=True, double=True)),
     ]
     rows, curves = [], {}
     for name, arch in archs:
@@ -398,7 +398,7 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False, tag="", use_default
             net, _, _ = train_agent(ctx["factory"](), cfg, verbose=True)
             save_model(net, cfg, model_path)
         for scen, env in scenarios.items():
-            res, eps_df = evaluate_multi(make_policy(net), env, EVAL_EPISODES, f"D3QN seed {s}", 0, return_episodes=True)
+            res, eps_df = evaluate_multi(make_policy(net), env, EVAL_EPISODES, f"DDQN seed {s}", 0, return_episodes=True)
             seed_rows.append({"scenario": scen, "train_seed": s, **{k: v for k, v in res.items() if k != "agent"}})
             episode_frames.append(eps_df.assign(scenario=scen, train_seed=s))
             print(f"    {scen:<20} reward {res['avg_reward']:7.2f} | all delivered {res['success_rate']:.1%} | hotspots {res['avg_hotspot_steps']:.2f}")
@@ -428,7 +428,7 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False, tag="", use_default
 # ----------------------------------------------------------------------------- main
 def main():
     global EVAL_EPISODES
-    ap = argparse.ArgumentParser(description="D3QN on the multi-order delivery environment")
+    ap = argparse.ArgumentParser(description="DDQN on the multi-order delivery environment")
     ap.add_argument("--stage", choices=["A", "B", "C", "all"], default="all")
     ap.add_argument("--quick", action="store_true", help="tiny smoke test (a few minutes)")
     ap.add_argument("--n-configs", type=int, default=8, help="Stage B: number of random configs")

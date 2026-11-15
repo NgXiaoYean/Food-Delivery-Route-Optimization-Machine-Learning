@@ -1,0 +1,4 @@
+[self-test] default rules reproduce the original environment: True (51.6467 vs 51.6467)
+[filter] back-step penalty sweep on VALIDATION trips (ensemble): 0.0: 55.06, 0.25: 55.03, 0.5: 54.97, 1.0: 54.91, 2.0: 54.61 -> best 0.0
+[inputs] most relied-on inputs (normal): Direction to customers (row, col offsets) (228.4); Distance to customers (106.1); Neighbour-congestion flags (3.1)
+[rules] ensemble beats Greedy under 10 of 10 rule sets; gain over Greedy ranges 3.17 to 7.01

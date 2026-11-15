@@ -1,0 +1,11 @@
+rule_change,Ensemble_reward,Greedy_reward,Planner_reward,Ensemble_late_min,Greedy_late_min,Planner_late_min,gain_vs_greedy,gap_closed,ensemble_beats_greedy
+Original rules,55.33,50.884,56.22,19.807,23.578,19.116,4.445,0.833,True
+Late penalty 0.25 per min,60.281,56.779,60.999,19.807,23.578,19.116,3.503,0.83,True
+Late penalty 1.0 per min,45.426,39.095,46.662,19.807,23.578,19.116,6.331,0.837,True
+Congestion cost x0.5,56.4,53.234,57.036,19.807,23.578,19.043,3.165,0.833,True
+Congestion cost x2,53.19,46.184,54.691,19.807,23.578,19.751,7.005,0.823,True
+Time in congested cell x1.5,56.119,52.652,56.744,18.228,20.042,18.068,3.467,0.847,True
+Time in congested cell x3,53.62,47.135,55.086,23.225,31.076,21.385,6.485,0.816,True
+Weather weight 0 (cost and time),61.533,57.46,62.254,14.136,17.161,13.827,4.072,0.85,True
+Delivery bonus 30,19.93,15.484,20.82,19.807,23.578,19.116,4.445,0.833,True
+Calibrated clock (fitted to data),62.843,59.056,63.557,10.505,12.96,10.199,3.788,0.842,True

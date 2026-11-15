@@ -1,0 +1,10 @@
+{
+  "lr": 0.001,
+  "gamma": 0.95,
+  "hidden": 128,
+  "weight_decay": 0.0001,
+  "dropout": 0.1,
+  "tau": 0.005,
+  "dueling": true,
+  "double": true
+}
