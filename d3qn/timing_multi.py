@@ -5,15 +5,15 @@ Time per decision of Greedy, the Planner, one D3QN model and the 5-model ensembl
 real trips. Also answers whether a learned agent is "faster than Dijkstra": that depends on the map size and on
 the hardware, so it is measured, not assumed.
 
-    python ddqn/timing_multi.py --result-dir ddqn/result_multi
+    python d3qn/timing_multi.py --result-dir d3qn/result_multi
 Output: <result-dir>/timing.csv
 """
 import argparse, sys, time
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(BASE_DIR)); sys.path.insert(0, str(BASE_DIR / "ddqn"))
+sys.path.insert(0, str(BASE_DIR)); sys.path.insert(0, str(BASE_DIR / "d3qn"))
 import numpy as np, pandas as pd, torch
-import ddqn_multi as dm
+import d3qn_multi as dm
 from ensemble_multi import make_ensemble_policy
 from env_multi import greedy_policy_multi, planner_policy_multi
 
@@ -44,11 +44,11 @@ def time_policy(policy, snaps, repeats=3):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--result-dir", default=str(BASE_DIR / "ddqn" / "result_multi"))
+    ap.add_argument("--result-dir", default=str(BASE_DIR / "d3qn" / "result_multi"))
     ap.add_argument("--trips", type=int, default=30)
     a = ap.parse_args()
     out = Path(a.result_dir)
-    paths = sorted(out.glob("ddqn_multi_seed*.pt"))
+    paths = sorted(out.glob("d3qn_multi_seed*.pt"))
     if not paths:
         print("[ERROR] no models found"); sys.exit(1)
     nets = [dm.load_model(p)[0] for p in paths]

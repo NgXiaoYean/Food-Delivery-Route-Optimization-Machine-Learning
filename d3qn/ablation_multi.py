@@ -1,7 +1,7 @@
 """
-Ablation study for the multi-order DDQN  (Part A "which factors matter" + Part B "which setting helped")
+Ablation study for the multi-order D3QN  (Part A "which factors matter" + Part B "which setting helped")
 =======================================================================================================
-Starting from the TUNED configuration (ddqn/result_multi/best_config.json) we change ONE thing at a time,
+Starting from the TUNED configuration (d3qn/result_multi/best_config.json) we change ONE thing at a time,
 retrain, and score on the VALIDATION trips (never the test set):
 
   Hyperparameters (put one tuned setting back to its default)
@@ -18,12 +18,12 @@ Each variant is trained with several seeds so we can see whether a change is big
 
 Run from the project root (takes hours on a laptop; run it overnight, it saves after every run, and
 re-running the same command continues where it stopped):
-    python ddqn/ablation_multi.py                 # everything, 2 seeds per variant
-    python ddqn/ablation_multi.py --group feature # only the feature ablation
-    python ddqn/ablation_multi.py --seeds 3       # more seeds = more reliable
-    python ddqn/ablation_multi.py --quick         # a few-minute smoke test
+    python d3qn/ablation_multi.py                 # everything, 2 seeds per variant
+    python d3qn/ablation_multi.py --group feature # only the feature ablation
+    python d3qn/ablation_multi.py --seeds 3       # more seeds = more reliable
+    python d3qn/ablation_multi.py --quick         # a few-minute smoke test
 
-Outputs (ddqn/result_multi/): ablation_val_runs.csv, ablation_summary.csv, ablation.png
+Outputs (d3qn/result_multi/): ablation_val_runs.csv, ablation_summary.csv, ablation.png
 """
 import argparse
 import json
@@ -33,7 +33,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-sys.path.insert(0, str(BASE_DIR / "ddqn"))
+sys.path.insert(0, str(BASE_DIR / "d3qn"))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -41,7 +41,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import ddqn_multi as dm
+import d3qn_multi as dm
 from env_multi import (K_MAX, MultiDeliveryEnv, evaluate_multi, greedy_policy_multi, planner_policy_multi)
 
 DISTANCE_IDX = [2 + 4 * j + 2 for j in range(K_MAX)]   # Manhattan-distance slot of each customer in the observation
@@ -83,16 +83,16 @@ def get_variants(best, group):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="One-at-a-time ablation of the multi-order DDQN (validation set)")
+    ap = argparse.ArgumentParser(description="One-at-a-time ablation of the multi-order D3QN (validation set)")
     ap.add_argument("--group", choices=["hyper", "feature", "all"], default="all")
     ap.add_argument("--seeds", type=int, default=2, help="training seeds per variant")
     ap.add_argument("--episodes", type=int, default=None, help="override training episodes")
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
 
-    out = BASE_DIR / "ddqn" / ("result_multi_quick" if args.quick else "result_multi")
+    out = BASE_DIR / "d3qn" / ("result_multi_quick" if args.quick else "result_multi")
     out.mkdir(parents=True, exist_ok=True)
-    cfg_path = BASE_DIR / "ddqn" / "result_multi" / "best_config.json"
+    cfg_path = BASE_DIR / "d3qn" / "result_multi" / "best_config.json"
     if cfg_path.exists():
         best = json.loads(cfg_path.read_text())
     else:

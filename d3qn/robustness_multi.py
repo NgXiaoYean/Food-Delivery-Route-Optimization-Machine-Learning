@@ -1,5 +1,5 @@
 """
-Robustness and interpretability checks for the multi-order DDQN  (NO training: uses the saved Stage C models)
+Robustness and interpretability checks for the multi-order D3QN  (NO training: uses the saved Stage C models)
 ============================================================================================================
 Answers, with numbers, the questions "is safe_argmax necessary?", "which inputs does the network use?",
 "does the result depend on our hand-set reward and time rules?" and "does it survive a more realistic clock?".
@@ -15,8 +15,8 @@ Answers, with numbers, the questions "is safe_argmax necessary?", "which inputs 
   5. self-test: with default rules the parameterised environment must give exactly the original rewards.
 
 Run from the project root (a few minutes on a laptop):
-    python ddqn/robustness_multi.py --result-dir ddqn/result_multi
-    python ddqn/robustness_multi.py --quick
+    python d3qn/robustness_multi.py --result-dir d3qn/result_multi
+    python d3qn/robustness_multi.py --quick
 Outputs (result dir): robust_filter.csv, robust_inputs.csv, robust_rules.csv, robust_summary.txt, robust_*.png
 """
 import argparse
@@ -25,7 +25,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-sys.path.insert(0, str(BASE_DIR / "ddqn"))
+sys.path.insert(0, str(BASE_DIR / "d3qn"))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-import ddqn_multi as dm
+import d3qn_multi as dm
 from env_multi import (DEFAULT_RULES, K_MAX, MultiDeliveryEnv, evaluate_multi, greedy_policy_multi,
                        planner_policy_multi, safe_argmax)
 
@@ -114,14 +114,14 @@ def rules_env(base_env, rules, **kw):
 
 def main():
     ap = argparse.ArgumentParser(description="Robustness and interpretability checks (no training)")
-    ap.add_argument("--result-dir", default=str(BASE_DIR / "ddqn" / "result_multi"))
+    ap.add_argument("--result-dir", default=str(BASE_DIR / "d3qn" / "result_multi"))
     ap.add_argument("--episodes", type=int, default=500)
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     out = Path(args.result_dir)
-    paths = sorted(out.glob("ddqn_multi_seed*.pt"))
+    paths = sorted(out.glob("d3qn_multi_seed*.pt"))
     if len(paths) < 2:
-        print(f"[ERROR] need models like ddqn_multi_seed0.pt in {out}. Run Stage C first.")
+        print(f"[ERROR] need models like d3qn_multi_seed0.pt in {out}. Run Stage C first.")
         sys.exit(1)
     nets = [dm.load_model(p)[0] for p in paths]
     n_ep = 20 if args.quick else args.episodes
@@ -208,7 +208,7 @@ def main():
     s = idf[idf.scenario == "normal"].sort_values("reward_drop")
     ax.barh(s["input_group"], s["reward_drop"], color="#1f6fd1")
     ax.set_xlabel("Reward lost when this input group is hidden (normal trips)")
-    ax.set_title("What the DDQN ensemble relies on"); ax.grid(axis="x", linestyle="--", alpha=0.4)
+    ax.set_title("What the D3QN ensemble relies on"); ax.grid(axis="x", linestyle="--", alpha=0.4)
     fig.tight_layout(); fig.savefig(out / "robust_inputs.png", dpi=160); plt.close(fig)
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.barh(rdf["rule_change"], rdf["gain_vs_greedy"], color="#e08a1e")

@@ -1,5 +1,5 @@
 """
-Error analysis for the multi-order DDQN (Part A item 4: "examine types of errors or inefficiencies")
+Error analysis for the multi-order D3QN (Part A item 4: "examine types of errors or inefficiencies")
 ===================================================================================================
 No training needed: it loads the models saved by Stage C and answers
   1. WHERE does the learned agent lose reward compared with the oracle Planner?
@@ -11,8 +11,8 @@ No training needed: it loads the models saved by Stage C and answers
 "Regret" = Planner reward minus agent reward on the SAME trip (higher = agent did worse).
 
 Run from the project root (after Stage C):
-    python ddqn/error_analysis_multi.py
-Outputs (ddqn/result_multi/): error_regret_by_group.csv, error_worst_trips.csv, error_failed_trips.csv,
+    python d3qn/error_analysis_multi.py
+Outputs (d3qn/result_multi/): error_regret_by_group.csv, error_worst_trips.csv, error_failed_trips.csv,
                               error_summary.txt, error_regret_by_group.png
 """
 import argparse
@@ -21,7 +21,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-sys.path.insert(0, str(BASE_DIR / "ddqn"))
+sys.path.insert(0, str(BASE_DIR / "d3qn"))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import ddqn_multi as dm
+import d3qn_multi as dm
 from ensemble_multi import make_ensemble_policy
 from env_multi import evaluate_multi, greedy_policy_multi, planner_policy_multi
 
@@ -48,16 +48,16 @@ def trip_features(env, episodes):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Error analysis of the multi-order DDQN ensemble")
-    ap.add_argument("--result-dir", default=str(BASE_DIR / "ddqn" / "result_multi"))
+    ap = argparse.ArgumentParser(description="Error analysis of the multi-order D3QN ensemble")
+    ap.add_argument("--result-dir", default=str(BASE_DIR / "d3qn" / "result_multi"))
     ap.add_argument("--episodes", type=int, default=500)
     ap.add_argument("--min-group", type=int, default=15, help="hide groups with fewer trips than this")
     args = ap.parse_args()
 
     out = Path(args.result_dir)
-    paths = sorted(out.glob("ddqn_multi_seed*.pt"))
+    paths = sorted(out.glob("d3qn_multi_seed*.pt"))
     if len(paths) < 2:
-        print(f"[ERROR] need at least 2 models like ddqn_multi_seed0.pt in {out}. Run Stage C first.")
+        print(f"[ERROR] need at least 2 models like d3qn_multi_seed0.pt in {out}. Run Stage C first.")
         sys.exit(1)
     nets = [dm.load_model(p)[0] for p in paths]
     ctx = dm.make_context(False)
@@ -153,7 +153,7 @@ def main():
         ax.set_title(f"By {'number of customers' if factor == 'k' else factor}")
         ax.set_ylabel("Regret vs Planner (reward / trip)"); ax.grid(axis="y", linestyle="--", alpha=0.4)
     axes[0].legend()
-    fig.suptitle("Where the DDQN ensemble loses reward compared with the oracle Planner")
+    fig.suptitle("Where the D3QN ensemble loses reward compared with the oracle Planner")
     fig.tight_layout(); fig.savefig(out / "error_regret_by_group.png", dpi=160); plt.close(fig)
     print(f"\nSaved to {out}")
 

@@ -22,7 +22,7 @@ DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
 QL_PATH = BASE_DIR / "q_learning" / "result" / "ql_model_best.pkl"
 DQN_V2_PATH = BASE_DIR / "dqn" / "result" / "dqn_model_v2.pt"
 DQN_V3_PATH = BASE_DIR / "dqn" / "result" / "dqn_model_v3.pt"
-DDQN_PATH = BASE_DIR / "ddqn" / "result" / "ddqn_model_best.pt"
+D3QN_PATH = BASE_DIR / "d3qn" / "result" / "d3qn_model_best.pt"
 TUNED_FALLBACK = BASE_DIR / "dqn" / "result" / "dqn_model_tuned.pt"
 
 RESULT_DIR = BASE_DIR / "result" / "error_analysis"
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         ql_agent = TabularQLearningAgent.load(QL_PATH)
         agents["Q-Learning"] = make_ql_policy(ql_agent)
 
-    net_v2, net_v3, ddqn_net = None, None, None
+    net_v2, net_v3, d3qn_net = None, None, None
     if DQN_V2_PATH.exists():
         net_v2 = QNetwork()
         net_v2.load_state_dict(torch.load(DQN_V2_PATH, map_location="cpu", weights_only=True))
@@ -95,19 +95,19 @@ if __name__ == "__main__":
         net_v3.load_state_dict(torch.load(DQN_V3_PATH, map_location="cpu", weights_only=True))
         net_v3.eval()
 
-    if DDQN_PATH.exists():
-        from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
-        ddqn_net = load_best_ddqn(DDQN_PATH)
-        agents["Dueling DDQN"] = make_ddqn_policy(ddqn_net)
+    if D3QN_PATH.exists():
+        from d3qn.d3qn_pipeline import load_best_d3qn, make_d3qn_policy
+        d3qn_net = load_best_d3qn(D3QN_PATH)
+        agents["D3QN"] = make_d3qn_policy(d3qn_net)
     elif TUNED_FALLBACK.exists():
         ckpt = torch.load(TUNED_FALLBACK, map_location="cpu", weights_only=False)
-        ddqn_net = QNetwork(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
-        ddqn_net.load_state_dict(ckpt["state_dict"])
-        ddqn_net.eval()
-        agents["Dueling DDQN"] = dqn_policy_v3(ddqn_net)
+        d3qn_net = QNetwork(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
+        d3qn_net.load_state_dict(ckpt["state_dict"])
+        d3qn_net.eval()
+        agents["D3QN"] = dqn_policy_v3(d3qn_net)
 
-    if net_v2 is not None and ddqn_net is not None:
-        agents["Ensemble"] = make_cross_algorithm_ensemble(ql_agent, net_v2, net_v3, ddqn_net)
+    if net_v2 is not None and d3qn_net is not None:
+        agents["Ensemble"] = make_cross_algorithm_ensemble(ql_agent, net_v2, net_v3, d3qn_net)
 
     runs = pd.concat([
         run_episodes(fn, env).assign(agent=name)
@@ -136,7 +136,7 @@ if __name__ == "__main__":
             .reindex(order)
         )
         gap_cols = []
-        for col in ["Greedy", "Q-Learning", "DQN v2", "Dueling DDQN", "Ensemble"]:
+        for col in ["Greedy", "Q-Learning", "DQN v2", "D3QN", "Ensemble"]:
             if col in table.columns:
                 g_col = f"{col} gap"
                 table[g_col] = table["Planner"] - table[col]

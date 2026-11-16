@@ -26,7 +26,7 @@ from env import DeliveryEnv, MINUTES_PER_STEP
 
 K_MAX = 3
 # Scoring / timing rules. The DEFAULTS reproduce the original environment exactly; the sensitivity and
-# calibration experiments (ddqn/sensitivity_multi.py) change them one at a time.
+# calibration experiments (d3qn/robustness_multi.py) change them one at a time.
 DEFAULT_RULES = dict(
     c_traffic=0.3,    # move cost per traffic level
     c_weather=0.2,    # move cost per weather level

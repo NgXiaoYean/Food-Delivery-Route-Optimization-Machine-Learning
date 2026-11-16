@@ -1,7 +1,7 @@
 """
-Retraining study for the multi-order DDQN: grid size and a data-calibrated clock   (Part B: robustness / scalability)
+Retraining study for the multi-order D3QN: grid size and a data-calibrated clock   (Part B: robustness / scalability)
 ====================================================================================================================
-Everything here RETRAINS the tuned configuration (ddqn/result_multi/best_config.json), so it is slow; it saves
+Everything here RETRAINS the tuned configuration (d3qn/result_multi/best_config.json), so it is slow; it saves
 after every run and can be resumed by running the same command again.
 
   --study grid        grid sizes (default 6 8 10 12 15). The km-to-cell rule maps the same real distances onto the
@@ -14,10 +14,10 @@ after every run and can be resumed by running the same command again.
 Each setting is scored against Greedy and the Planner on the SAME validation trips of its own environment
 (use --test to score on the test trips instead, once, at the very end).
 
-    python ddqn/retrain_study_multi.py --study grid --seeds 2
-    python ddqn/retrain_study_multi.py --study calibrated --seeds 3
-    python ddqn/retrain_study_multi.py --study grid --quick       # few-minute smoke test
-Outputs (ddqn/result_multi/): retrain_<study>_runs.csv, retrain_<study>_summary.csv, retrain_<study>.png
+    python d3qn/retrain_study_multi.py --study grid --seeds 2
+    python d3qn/retrain_study_multi.py --study calibrated --seeds 3
+    python d3qn/retrain_study_multi.py --study grid --quick       # few-minute smoke test
+Outputs (d3qn/result_multi/): retrain_<study>_runs.csv, retrain_<study>_summary.csv, retrain_<study>.png
 """
 import argparse
 import json
@@ -27,7 +27,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-sys.path.insert(0, str(BASE_DIR / "ddqn"))
+sys.path.insert(0, str(BASE_DIR / "d3qn"))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -35,7 +35,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import ddqn_multi as dm
+import d3qn_multi as dm
 from env import load_orders
 from env_multi import (MultiDeliveryEnv, evaluate_multi, greedy_policy_multi, planner_policy_multi, split_orders_3way)
 from robustness_multi import CALIBRATED
@@ -58,9 +58,9 @@ def main():
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
 
-    out = BASE_DIR / "ddqn" / ("result_multi_quick" if args.quick else "result_multi")
+    out = BASE_DIR / "d3qn" / ("result_multi_quick" if args.quick else "result_multi")
     out.mkdir(parents=True, exist_ok=True)
-    cfg_path = BASE_DIR / "ddqn" / "result_multi" / "best_config.json"
+    cfg_path = BASE_DIR / "d3qn" / "result_multi" / "best_config.json"
     best = json.loads(cfg_path.read_text()) if cfg_path.exists() else {**dm.DEFAULT_MODEL, "dueling": True, "double": True}
     if not cfg_path.exists():
         print("[note] best_config.json not found; using the default settings")
@@ -118,7 +118,7 @@ def main():
     x = np.arange(len(g))
     ax.plot(x, g["greedy"], "o--", color="grey", label="Greedy")
     ax.plot(x, g["planner"], "s:", color="black", label="Planner")
-    ax.errorbar(x, g["agent"], yerr=g["sd"].fillna(0), fmt="o-", color="#1f6fd1", capsize=3, label="DDQN (mean of seeds)")
+    ax.errorbar(x, g["agent"], yerr=g["sd"].fillna(0), fmt="o-", color="#1f6fd1", capsize=3, label="D3QN (mean of seeds)")
     ax.set_xticks(x); ax.set_xticklabels(g["setting"])
     ax.set_ylabel("Reward per trip"); ax.set_title(f"Retraining study: {args.study}")
     ax.legend(); ax.grid(linestyle="--", alpha=0.4)

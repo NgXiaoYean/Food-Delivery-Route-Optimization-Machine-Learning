@@ -42,7 +42,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
 DQN_RESULT_DIR = BASE_DIR / "dqn" / "result"
 QL_RESULT_DIR = BASE_DIR / "q_learning" / "result"
-DDQN_RESULT_DIR = BASE_DIR / "ddqn" / "result"
+D3QN_RESULT_DIR = BASE_DIR / "d3qn" / "result"
 MASTER_RESULT_DIR = BASE_DIR / "result"
 
 DQN_RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,10 +92,10 @@ def planner_policy(env) -> int:
 
 
 # ==============================================================================
-# PART B.2: CROSS-ALGORITHM ENSEMBLE (TABULAR Q-LEARNING + DQN + DUELING DDQN)
+# PART B.2: CROSS-ALGORITHM ENSEMBLE (TABULAR Q-LEARNING + DQN + DUELING D3QN)
 # ==============================================================================
 
-def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, ddqn_net):
+def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, d3qn_net):
     """
     Combines all 3 distinct RL algorithms via standardized Q-value fusion:
       - Tabular Q-Learning (fast discrete lookup preference)
@@ -120,7 +120,7 @@ def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, ddqn_net):
             q_tab = ql_agent.q_table[ql_agent.extract_state(env)]
             blended += 0.10 * norm(q_tab)
 
-        # 2. DQN (v2 + v3) & DDQN contribution
+        # 2. DQN (v2 + v3) & D3QN contribution
         if torch is not None:
             with torch.no_grad():
                 if dqn_v2_net is not None and features_v2 is not None:
@@ -130,9 +130,9 @@ def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, ddqn_net):
                     q_v3 = dqn_v3_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
                     blended += 0.05 * norm(q_v3)
                 # 3. Dueling Double DQN contribution
-                if ddqn_net is not None and features_v3 is not None:
-                    q_ddqn = ddqn_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
-                    blended += 0.70 * norm(q_ddqn)
+                if d3qn_net is not None and features_v3 is not None:
+                    q_d3qn = d3qn_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
+                    blended += 0.70 * norm(q_d3qn)
 
         # Boundary safety & short-term oscillation filter
         r, c = env.pos
@@ -155,13 +155,13 @@ def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, ddqn_net):
 # ==============================================================================
 
 def save_master_comparison_chart(df: pd.DataFrame, out_path: Path):
-    """Plot 4 key metrics across Baselines, Q-Learning, DQN, Dueling DDQN, and Ensemble."""
+    """Plot 4 key metrics across Baselines, Q-Learning, DQN, D3QN, and Ensemble."""
     core_names = [
         "Greedy",
         "Q-Learning (Tuned)",
         "DQN v2",
         "DQN v3",
-        "Dueling DDQN",
+        "D3QN",
         "3-Model Ensemble",
         "Planner",
     ]
@@ -318,31 +318,31 @@ if __name__ == "__main__":
         net_v3.eval()
         results.append(evaluate_policy(dqn_policy_v3(net_v3), env, name="DQN v3"))
 
-    # 3. Load Algorithm 3: Dueling Double DQN (or fallback to tuned DDQN)
-    ddqn_net = None
-    ddqn_pol = None
-    ddqn_path = DDQN_RESULT_DIR / "ddqn_model_best.pt"
+    # 3. Load Algorithm 3: Dueling Double DQN (or fallback to tuned D3QN)
+    d3qn_net = None
+    d3qn_pol = None
+    d3qn_path = D3QN_RESULT_DIR / "d3qn_model_best.pt"
     tuned_fallback = DQN_RESULT_DIR / "dqn_model_tuned.pt"
-    if ddqn_path.exists():
+    if d3qn_path.exists():
         try:
-            from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
-            ddqn_net = load_best_ddqn(ddqn_path)
-            ddqn_pol = make_ddqn_policy(ddqn_net)
-            results.append(evaluate_policy(ddqn_pol, env, name="Dueling DDQN"))
+            from d3qn.d3qn_pipeline import load_best_d3qn, make_d3qn_policy
+            d3qn_net = load_best_d3qn(d3qn_path)
+            d3qn_pol = make_d3qn_policy(d3qn_net)
+            results.append(evaluate_policy(d3qn_pol, env, name="D3QN"))
         except Exception as exc:
-            print(f"[WARN] Could not load Dueling DDQN checkpoint: {exc}")
+            print(f"[WARN] Could not load D3QN checkpoint: {exc}")
     elif tuned_fallback.exists():
         ckpt = torch.load(tuned_fallback, map_location="cpu", weights_only=False)
-        ddqn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
-        ddqn_net.load_state_dict(ckpt["state_dict"])
-        ddqn_net.eval()
-        ddqn_pol = dqn_policy_v3(ddqn_net)
-        results.append(evaluate_policy(ddqn_pol, env, name="Dueling DDQN"))
+        d3qn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
+        d3qn_net.load_state_dict(ckpt["state_dict"])
+        d3qn_net.eval()
+        d3qn_pol = dqn_policy_v3(d3qn_net)
+        results.append(evaluate_policy(d3qn_pol, env, name="D3QN"))
 
-    # 4. Evaluate Part B Cross-Algorithm Ensemble (Q-Learning + DQN + Dueling DDQN)
+    # 4. Evaluate Part B Cross-Algorithm Ensemble (Q-Learning + DQN + D3QN)
     ens_pol = None
-    if net_v2 is not None and ddqn_net is not None:
-        ens_pol = make_cross_algorithm_ensemble(ql_best_agent, net_v2, net_v3, ddqn_net)
+    if net_v2 is not None and d3qn_net is not None:
+        ens_pol = make_cross_algorithm_ensemble(ql_best_agent, net_v2, net_v3, d3qn_net)
         results.append(evaluate_policy(ens_pol, env, name="3-Model Ensemble"))
 
     table = pd.DataFrame(results)
@@ -362,8 +362,8 @@ if __name__ == "__main__":
         map_dict["1. Q-Learning (Tuned)"] = make_ql_policy(ql_best_agent)
     if net_v2 is not None:
         map_dict["2. DQN v2"] = dqn_policy_v2(net_v2)
-    if ddqn_pol is not None:
-        map_dict["3. Dueling DDQN"] = ddqn_pol
+    if d3qn_pol is not None:
+        map_dict["3. D3QN"] = d3qn_pol
     if ens_pol is not None:
         map_dict["Ensemble (QL+DQN+D3QN)"] = ens_pol
     save_route_comparison_map(env, map_dict, DQN_RESULT_DIR / "route_comparison_map.png")

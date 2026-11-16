@@ -1,49 +1,49 @@
 """
 Multi-order demo page: one rider, 1 to 3 customers, optional new order mid-trip.
-Shows the route chosen by the trained Dueling Double DQN (DDQN) agents next to Greedy and the Planner.
+Shows the route chosen by the trained Dueling Double DQN (D3QN) agents next to Greedy and the Planner.
 
 Streamlit shows this file automatically in the sidebar next to app.py.
 Run from the project root:  streamlit run app.py
-Needs the saved models in ddqn/result_multi/  (made by:  python ddqn/ddqn_multi.py --stage C)
+Needs the saved models in d3qn/result_multi/  (made by:  python d3qn/d3qn_multi.py --stage C)
 """
 import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-sys.path.insert(0, str(BASE_DIR / "ddqn"))
+sys.path.insert(0, str(BASE_DIR / "d3qn"))
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-RESULT_DIR = BASE_DIR / "ddqn" / "result_multi"
+RESULT_DIR = BASE_DIR / "d3qn" / "result_multi"
 TRAFFIC = {0: "Low", 1: "Medium", 2: "High", 3: "Jam"}
 WEATHER = {0: "Clear/Cloudy", 1: "Windy", 2: "Fog/Sandstorm", 3: "Stormy"}
 COLOURS = {"Greedy (nearest first)": "#9a9a9a", "Planner (oracle)": "#333333",
-           "DDQN single model (seed 0)": "#7fb2e5", "DDQN ensemble (5 seeds)": "#d62728"}
+           "D3QN single model (seed 0)": "#7fb2e5", "D3QN ensemble (5 seeds)": "#d62728"}
 
-st.set_page_config(page_title="Multi-order DDQN", layout="wide")
-st.title("Multi-order delivery: Dueling Double DQN (DDQN)")
+st.set_page_config(page_title="Multi-order D3QN", layout="wide")
+st.title("Multi-order delivery: Dueling Double DQN (D3QN)")
 st.caption("One rider picks up 1 to 3 orders and must choose the delivery order and the route through a congested city grid. "
            "Optionally a new order appears during the trip.")
 
 
 @st.cache_resource(show_spinner="Loading data and trained models ...")
 def load_everything():
-    import ddqn_multi as dm
+    import d3qn_multi as dm
     from ensemble_multi import make_ensemble_policy
     from env_multi import greedy_policy_multi, planner_policy_multi
 
     ctx = dm.make_context(False)
-    paths = sorted(RESULT_DIR.glob("ddqn_multi_seed*.pt"))
+    paths = sorted(RESULT_DIR.glob("d3qn_multi_seed*.pt"))
     nets = [dm.load_model(p)[0] for p in paths]
     policies = {"Greedy (nearest first)": greedy_policy_multi, "Planner (oracle)": planner_policy_multi}
     if nets:
-        policies["DDQN single model (seed 0)"] = dm.make_policy(nets[0])
+        policies["D3QN single model (seed 0)"] = dm.make_policy(nets[0])
     if len(nets) >= 2:
-        policies["DDQN ensemble (5 seeds)" if len(nets) == 5 else f"DDQN ensemble ({len(nets)} seeds)"] = make_ensemble_policy(nets)
+        policies["D3QN ensemble (5 seeds)" if len(nets) == 5 else f"D3QN ensemble ({len(nets)} seeds)"] = make_ensemble_policy(nets)
     scen = {"Normal trip": ctx["test_env"], "A new order arrives mid-trip": ctx["dynamic_env"],
             "Congestion map never seen in training": ctx["unseen_map_env"]}
     return scen, policies, len(nets)
@@ -100,13 +100,13 @@ try:
     scenarios, policies, n_models = load_everything()
 except Exception as exc:  # missing data or models: tell the user exactly what to run
     st.error(f"Could not load the multi-order models: {exc}")
-    st.info("Run `python clean_data.py` then `python ddqn/ddqn_multi.py --stage C` first, "
-            "or copy the folder `ddqn/result_multi/` (with the ddqn_multi_seed*.pt files) from the teammate who trained it.")
+    st.info("Run `python clean_data.py` then `python d3qn/d3qn_multi.py --stage C` first, "
+            "or copy the folder `d3qn/result_multi/` (with the d3qn_multi_seed*.pt files) from the teammate who trained it.")
     st.stop()
 
 if n_models == 0:
-    st.warning("No trained DDQN models found in ddqn/result_multi/. Showing Greedy and Planner only. "
-               "Run `python ddqn/ddqn_multi.py --stage C` to create them.")
+    st.warning("No trained D3QN models found in d3qn/result_multi/. Showing Greedy and Planner only. "
+               "Run `python d3qn/d3qn_multi.py --stage C` to create them.")
 
 left, right = st.columns([1, 1.15])
 with left:
@@ -133,7 +133,7 @@ with left:
             order_txt.append(f"- **{name}:** {order}")
         st.markdown("**Delivery order**\n" + "\n".join(order_txt))
         st.caption("Reward = +50 per delivery, minus 0.5 per late minute and small costs for each move, congested cell and bad weather; "
-                   "-20 if the trip times out. The Planner sees the full traffic map (an oracle ceiling); the DDQN agents only see the numbers described in the report.")
+                   "-20 if the trip times out. The Planner sees the full traffic map (an oracle ceiling); the D3QN agents only see the numbers described in the report.")
 with right:
     if runs:
         st.pyplot(draw(runs, env.n))
@@ -144,7 +144,7 @@ c1, c2 = st.columns(2)
 with c1:
     summary = RESULT_DIR / "stageC_summary_mean_std.csv"
     if summary.exists():
-        st.markdown("**Tuned DDQN, mean and standard deviation over training seeds**")
+        st.markdown("**Tuned D3QN, mean and standard deviation over training seeds**")
         st.dataframe(pd.read_csv(summary, header=[0, 1], index_col=0).round(3))
     ens = RESULT_DIR / "ensemble_paired_differences.csv"
     if ens.exists():

@@ -10,7 +10,7 @@ An end-to-end Reinforcement Learning system optimizing urban food delivery route
 | :--- | :--- | :--- | :--- | :--- |
 | **`q_learning/`** | **1. Tabular Q-Learning** | Model-Free Tabular TD(0) | Raw 40k Discrete States (`v1`, 5.2% success) $\rightarrow$ Refined Relative + Hotspot States (`v2`, 86.4% success) | LR ($\alpha$), Discount ($\gamma$), & L2 Q-Table Regularization (`weight_decay`) $\rightarrow$ **92.4% success** |
 | **`dqn/`** | **2. Deep Q-Network (DQN)** | Value-Based Deep RL (MLP + Replay + Target Net) | `v1` Raw 8D (7.2%) $\rightarrow$ `v2` +Direction & Scaling (**100%**) $\rightarrow$ `v3` +Hotspot Radar (98.8%) | Hyperparameter search, Missing-Data Handling Study, & Stress Testing across 4 extreme scenarios |
-| **`ddqn/`** | **3. Dueling Double DQN (D3QN)** | Dual-Stream Value $V(s)$ + Advantage $A(s,a)$ & Double Q-Update | Vanilla Double DQN (MLP) vs. **Dueling Double DQN** (fixes Q-value overestimation around hotspots) | Decoupled L2 Weight Decay (`AdamW`), `Dropout`, & Polyak Soft Target Updates ($\tau$) $\rightarrow$ **100% success, halves hotspot steps** |
+| **`d3qn/`** | **3. Dueling Double DQN (D3QN)** | Dual-Stream Value $V(s)$ + Advantage $A(s,a)$ & Double Q-Update | Vanilla Double DQN (MLP) vs. **Dueling Double DQN** (fixes Q-value overestimation around hotspots) | Decoupled L2 Weight Decay (`AdamW`), `Dropout`, & Polyak Soft Target Updates ($\tau$) $\rightarrow$ **100% success, halves hotspot steps** |
 | **`evaluate.py` & `app.py`** | **Cross-Algorithm Ensemble** | Standardized Q-Value Fusion (`QL + DQN + D3QN`) | Automated 8-metric benchmark against `Random`, `Greedy`, and `Dijkstra Planner` | Combines all 3 RL families + Interactive 5-Tab **Streamlit Prototype UI** |
 
 ---
@@ -33,8 +33,8 @@ An end-to-end Reinforcement Learning system optimizing urban food delivery route
 │   ├── dqn_v3.py                      # Iteration 3: +4 neighboring hotspot sensors
 │   ├── part_b_refine.py               # Hyperparameter search, ensembling & 4-scenario stress test
 │   └── result/                        # Saved weights (.pt), curves (.png) & Part B CSVs
-├── ddqn/                              # Algorithm 3: Dueling Double DQN (D3QN)
-│   ├── ddqn_pipeline.py               # Part A (MLP vs Dueling) + Part B (AdamW L2 & Dropout reg)
+├── d3qn/                              # Algorithm 3: Dueling Double DQN (D3QN)
+│   ├── d3qn_pipeline.py               # Part A (MLP vs Dueling) + Part B (AdamW L2 & Dropout reg)
 │   └── result/                        # Saved D3QN weights (.pt), curves (.png) & tuning CSVs
 ├── result/
 │   ├── master_all_models_results.csv  # Consolidated 8-metric scoreboard across all models
@@ -71,7 +71,7 @@ python dqn/dqn_v1.py
 python dqn/dqn_v2.py
 python dqn/dqn_v3.py
 python dqn/part_b_refine.py
-python ddqn/ddqn_pipeline.py
+python d3qn/d3qn_pipeline.py
 
 # 4. Run Automated Master Evaluation & Error Analysis
 python evaluate.py

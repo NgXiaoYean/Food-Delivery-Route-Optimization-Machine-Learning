@@ -45,7 +45,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
 QL_RESULT_DIR = BASE_DIR / "q_learning" / "result"
 DQN_RESULT_DIR = BASE_DIR / "dqn" / "result"
-DDQN_RESULT_DIR = BASE_DIR / "ddqn" / "result"
+D3QN_RESULT_DIR = BASE_DIR / "d3qn" / "result"
 MASTER_RESULT_DIR = BASE_DIR / "result"
 ERR_RESULT_DIR = MASTER_RESULT_DIR / "error_analysis"
 EDA_DIR = BASE_DIR / "exploration" / "zomato_exploration"
@@ -86,12 +86,12 @@ ROUTE_STYLES = {
     "Direct Route (Baseline)": {"color": "#64748B", "weight": 3, "dash": "6, 6"},
     "Random Baseline": {"color": "#94A3B8", "weight": 2, "dash": "4, 6"},
     "Shortest-Time Planner (Dijkstra)": {"color": "#475569", "weight": 3, "dash": "4, 4"},
-    "Dueling Double DQN (DDQN)": {"color": "#2563EB", "weight": 4, "dash": None},
+    "Dueling Double DQN (D3QN)": {"color": "#2563EB", "weight": 4, "dash": None},
     "Deep Q-Network (DQN v2)": {"color": "#0284C7", "weight": 4, "dash": None},
     "Deep Q-Network (DQN v3)": {"color": "#0D9488", "weight": 4, "dash": None},
     "Tabular Q-Learning": {"color": "#4F46E5", "weight": 4, "dash": None},
     "Deep Q-Network (DQN v1)": {"color": "#7C3AED", "weight": 3, "dash": "4, 4"},
-    "Ensemble (QL + DQN + DDQN)": {"color": "#0F766E", "weight": 4, "dash": None},
+    "Ensemble (QL + DQN + D3QN)": {"color": "#0F766E", "weight": 4, "dash": None},
 }
 
 st.set_page_config(
@@ -289,7 +289,7 @@ def load_system_resources():
             pass
 
     m1, m2, m3 = None, None, None
-    ddqn_net = None
+    d3qn_net = None
     if TORCH_AVAILABLE and torch is not None:
         p1 = DQN_RESULT_DIR / "dqn_model_v1.pt"
         if p1.exists() and QNetV1 is not None:
@@ -309,26 +309,26 @@ def load_system_resources():
             m3.load_state_dict(torch.load(p3, map_location="cpu", weights_only=True))
             m3.eval()
 
-        ddqn_ckpt = DDQN_RESULT_DIR / "ddqn_model_best.pt"
+        d3qn_ckpt = D3QN_RESULT_DIR / "d3qn_model_best.pt"
         tuned_fallback = DQN_RESULT_DIR / "dqn_model_tuned.pt"
-        if ddqn_ckpt.exists():
+        if d3qn_ckpt.exists():
             try:
-                from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
-                ddqn_net = load_best_ddqn(ddqn_ckpt)
+                from d3qn.d3qn_pipeline import load_best_d3qn, make_d3qn_policy
+                d3qn_net = load_best_d3qn(d3qn_ckpt)
             except Exception:
                 pass
         elif tuned_fallback.exists() and QNetV2 is not None:
             ckpt = torch.load(tuned_fallback, map_location="cpu", weights_only=False)
-            ddqn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
-            ddqn_net.load_state_dict(ckpt["state_dict"])
-            ddqn_net.eval()
+            d3qn_net = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
+            d3qn_net.load_state_dict(ckpt["state_dict"])
+            d3qn_net.eval()
 
-    if ddqn_net is not None:
+    if d3qn_net is not None:
         try:
-            from ddqn.ddqn_pipeline import make_ddqn_policy
-            policies["Dueling Double DQN (DDQN)"] = make_ddqn_policy(ddqn_net)
+            from d3qn.d3qn_pipeline import make_d3qn_policy
+            policies["Dueling Double DQN (D3QN)"] = make_d3qn_policy(d3qn_net)
         except Exception:
-            policies["Dueling Double DQN (DDQN)"] = dqn_policy_v3(ddqn_net)
+            policies["Dueling Double DQN (D3QN)"] = dqn_policy_v3(d3qn_net)
     if m2 is not None:
         policies["Deep Q-Network (DQN v2)"] = dqn_policy_v2(m2)
     if m3 is not None:
@@ -338,9 +338,9 @@ def load_system_resources():
         policies["Tabular Q-Learning"] = make_ql_policy(ql_agent)
     if m1 is not None:
         policies["Deep Q-Network (DQN v1)"] = dqn_policy_v1(m1)
-    if m2 is not None and ddqn_net is not None:
-        policies["Ensemble (QL + DQN + DDQN)"] = make_cross_algorithm_ensemble(
-            ql_agent, m2, m3, ddqn_net
+    if m2 is not None and d3qn_net is not None:
+        policies["Ensemble (QL + DQN + D3QN)"] = make_cross_algorithm_ensemble(
+            ql_agent, m2, m3, d3qn_net
         )
 
     policies["Direct Route (Baseline)"] = greedy_policy
@@ -1490,7 +1490,7 @@ with tab_val:
 
     v1, v2, v3 = st.columns(3)
     v1.metric(
-        "Best Single RL Model (Dueling DDQN)",
+        "Best Single RL Model (D3QN)",
         "~0.35 ms / order",
         delta="5x faster compute than Dijkstra full-map search",
         delta_color="normal",
@@ -1507,8 +1507,8 @@ with tab_val:
     )
     v3.metric(
         "SLA Adherence (<= 45 min)",
-        val_df.loc[val_df["Algorithm"] == "Dueling Double DQN (DDQN)", "SLA Adherence (<=45m)"].iloc[0]
-        if "Dueling Double DQN (DDQN)" in val_df["Algorithm"].values
+        val_df.loc[val_df["Algorithm"] == "Dueling Double DQN (D3QN)", "SLA Adherence (<=45m)"].iloc[0]
+        if "Dueling Double DQN (D3QN)" in val_df["Algorithm"].values
         else "95.0%",
         delta="vs. Direct Route cutting through heavy traffic zones",
         delta_color="normal",
@@ -1549,13 +1549,13 @@ with tab_bench:
 
     st.divider()
     st.subheader("Training Curves (Part A)")
-    c_ql, c_dqn, c_ddqn = st.columns(3)
+    c_ql, c_dqn, c_d3qn = st.columns(3)
     if (QL_RESULT_DIR / "ql_learning_curves.png").exists():
         c_ql.image(str(QL_RESULT_DIR / "ql_learning_curves.png"), caption="Tabular Q-Learning", use_container_width=True)
     if (DQN_RESULT_DIR / "dqn_learning_curve_v2.png").exists():
         c_dqn.image(str(DQN_RESULT_DIR / "dqn_learning_curve_v2.png"), caption="Deep Q-Network (DQN v2)", use_container_width=True)
-    if (DDQN_RESULT_DIR / "ddqn_learning_curves.png").exists():
-        c_ddqn.image(str(DDQN_RESULT_DIR / "ddqn_learning_curves.png"), caption="Double DQN vs. Dueling DDQN", use_container_width=True)
+    if (D3QN_RESULT_DIR / "d3qn_learning_curves.png").exists():
+        c_d3qn.image(str(D3QN_RESULT_DIR / "d3qn_learning_curves.png"), caption="Double DQN vs. D3QN", use_container_width=True)
 
 # ------------------------------------------------------------------------------
 # TAB 4: MODEL TUNING & ROBUSTNESS (PART B)
@@ -1572,10 +1572,10 @@ with tab_tuning:
             st.markdown("##### Q-Learning Parameter Tuning")
             st.dataframe(pd.read_csv(QL_RESULT_DIR / "ql_part_b_tuning.csv"), use_container_width=True, hide_index=True)
 
-    if (DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv").exists():
+    if (D3QN_RESULT_DIR / "d3qn_part_b_tuning.csv").exists():
         with col2:
-            st.markdown("##### Dueling DDQN Regularization & Tuning")
-            st.dataframe(pd.read_csv(DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv"), use_container_width=True, hide_index=True)
+            st.markdown("##### D3QN Regularization & Tuning")
+            st.dataframe(pd.read_csv(D3QN_RESULT_DIR / "d3qn_part_b_tuning.csv"), use_container_width=True, hide_index=True)
 
     if (MASTER_RESULT_DIR / "missing_data_comparison.csv").exists():
         st.divider()

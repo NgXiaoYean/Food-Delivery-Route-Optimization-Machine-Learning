@@ -1,5 +1,5 @@
 """
-DDQN (Dueling Double DQN) on the MULTI-ORDER environment  --  Part A + Part B + final evidence
+D3QN (Dueling Double DQN) on the MULTI-ORDER environment  --  Part A + Part B + final evidence
 ================================================================================================
 A rider carries 1-3 orders; the agent chooses WHICH customer to reach next and WHICH cells to cross.
 This file is self-contained (it does not import from dqn/), so the old single-order pipeline keeps working.
@@ -14,14 +14,14 @@ Three stages (run from the project root):
                    Reports mean +/- std over seeds and a per-number-of-customers breakdown.
 
 Usage:
-    python ddqn/ddqn_multi.py --quick            # ~2 min smoke test (tiny numbers, writes to result_multi_quick/)
-    python ddqn/ddqn_multi.py --stage A
-    python ddqn/ddqn_multi.py --stage B --n-configs 8
-    python ddqn/ddqn_multi.py --stage C --seeds 5
+    python d3qn/d3qn_multi.py --quick            # ~2 min smoke test (tiny numbers, writes to result_multi_quick/)
+    python d3qn/d3qn_multi.py --stage A
+    python d3qn/d3qn_multi.py --stage B --n-configs 8
+    python d3qn/d3qn_multi.py --stage C --seeds 5
     add --resume to continue an interrupted Stage B / Stage C instead of starting over
-    python ddqn/ddqn_multi.py                    # all three stages, in order
+    python d3qn/d3qn_multi.py                    # all three stages, in order
 
-Everything is saved as CSV / PNG / .pt in ddqn/result_multi/ so you can drop the numbers straight into the report.
+Everything is saved as CSV / PNG / .pt in d3qn/result_multi/ so you can drop the numbers straight into the report.
 """
 import argparse
 import json
@@ -285,7 +285,7 @@ def stage_a(ctx, out_dir, base):
     archs = [
         ("Standard DQN (MLP)", dict(dueling=False, double=False)),
         ("Double DQN (MLP)", dict(dueling=False, double=True)),
-        ("Dueling Double DQN (DDQN)", dict(dueling=True, double=True)),
+        ("Dueling Double DQN (D3QN)", dict(dueling=True, double=True)),
     ]
     rows, curves = [], {}
     for name, arch in archs:
@@ -389,7 +389,7 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False, tag="", use_default
     seed_rows, episode_frames = [], []
     for s in range(n_seeds):
         cfg = {**base, **best, "seed": s}
-        model_path = out_dir / f"ddqn_multi{tag}_seed{s}.pt"
+        model_path = out_dir / f"d3qn_multi{tag}_seed{s}.pt"
         if resume and model_path.exists():
             print(f"\n[C] seed {s}: reusing saved model {model_path.name}")
             net, _ = load_model(model_path)
@@ -398,7 +398,7 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False, tag="", use_default
             net, _, _ = train_agent(ctx["factory"](), cfg, verbose=True)
             save_model(net, cfg, model_path)
         for scen, env in scenarios.items():
-            res, eps_df = evaluate_multi(make_policy(net), env, EVAL_EPISODES, f"DDQN seed {s}", 0, return_episodes=True)
+            res, eps_df = evaluate_multi(make_policy(net), env, EVAL_EPISODES, f"D3QN seed {s}", 0, return_episodes=True)
             seed_rows.append({"scenario": scen, "train_seed": s, **{k: v for k, v in res.items() if k != "agent"}})
             episode_frames.append(eps_df.assign(scenario=scen, train_seed=s))
             print(f"    {scen:<20} reward {res['avg_reward']:7.2f} | all delivered {res['success_rate']:.1%} | hotspots {res['avg_hotspot_steps']:.2f}")
@@ -428,7 +428,7 @@ def stage_c(ctx, out_dir, base, n_seeds, arch, resume=False, tag="", use_default
 # ----------------------------------------------------------------------------- main
 def main():
     global EVAL_EPISODES
-    ap = argparse.ArgumentParser(description="DDQN on the multi-order delivery environment")
+    ap = argparse.ArgumentParser(description="D3QN on the multi-order delivery environment")
     ap.add_argument("--stage", choices=["A", "B", "C", "all"], default="all")
     ap.add_argument("--quick", action="store_true", help="tiny smoke test (a few minutes)")
     ap.add_argument("--n-configs", type=int, default=8, help="Stage B: number of random configs")
@@ -447,11 +447,11 @@ def main():
 
     base = dict(BASE_CFG)
     n_configs, n_seeds = args.n_configs, args.seeds
-    out_dir = BASE_DIR / "ddqn" / "result_multi"
+    out_dir = BASE_DIR / "d3qn" / "result_multi"
     if args.quick:
         base.update(episodes=60, warmup=200, eps_decay_episodes=30)
         EVAL_EPISODES, n_configs, n_seeds = 20, 2, 2
-        out_dir = BASE_DIR / "ddqn" / "result_multi_quick"
+        out_dir = BASE_DIR / "d3qn" / "result_multi_quick"
     if args.episodes:
         base["episodes"] = args.episodes
     out_dir.mkdir(parents=True, exist_ok=True)
