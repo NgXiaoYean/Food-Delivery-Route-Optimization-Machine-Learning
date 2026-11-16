@@ -1,0 +1,10 @@
+# Run pip install -r requirements.txt
+
+pandas
+numpy
+matplotlib
+seaborn
+torch
+streamlit
+folium
+streamlit-folium

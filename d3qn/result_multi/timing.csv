@@ -1,0 +1,5 @@
+method,ms_per_decision,decisions_timed
+Greedy,0.001,343
+"Planner (Dijkstra, all orders)",0.401,343
+D3QN single model,0.148,343
+D3QN ensemble (5 models),0.842,343

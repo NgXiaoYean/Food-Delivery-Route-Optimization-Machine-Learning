@@ -1,0 +1,11 @@
+step,rows_after,note
+Raw data,45584,
+1. Strip text / fix 'NaN' strings,45584,text columns had stray spaces and 'NaN ' as text
+2. Target as numeric minutes,45584,column: Time_taken (min)
+3. Remove duplicate rows,45584,
+4. Remove invalid (~0) coordinates,41944,0.0 means GPS was not recorded
+5. Remove distances >= 50 km,41944,a food delivery cannot realistically be this far
+6. Drop rows missing traffic/weather/multi,40482,"env needs these; ~600-1000 each, small loss"
+7a. Remove ratings > 5,40482,ratings scale is 1-5
+7b. Fill missing age/rating with median,40482,flag columns *_was_missing kept for transparency
+8. Flag time outliers (kept),40482,
