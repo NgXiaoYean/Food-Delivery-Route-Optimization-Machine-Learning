@@ -1,0 +1,2 @@
+agent,success_rate,on_time_rate,avg_reward,std_reward,avg_steps,route_efficiency,avg_delivery_time_min,avg_hotspot_steps
+DQN,0.1,0.038,-112.7999,57.73281887271745,55.192,0.08952044637655888,33.506,2.132

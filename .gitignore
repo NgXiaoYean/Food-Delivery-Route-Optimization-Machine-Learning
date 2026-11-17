@@ -18,3 +18,8 @@ data/zomato_dataset.csv
 !column_information.csv
 !missing_values.csv
 !statistical_summary.csv
+
+# Keep the trained DQN models and their results so the app works without retraining
+!dqn/result/*.pt
+!dqn/result/*.csv
+!dqn/result/*.png

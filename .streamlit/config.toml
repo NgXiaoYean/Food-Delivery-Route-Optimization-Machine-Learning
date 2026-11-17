@@ -1,7 +1,14 @@
 [theme]
 base = "light"
-primaryColor = "#2563EB"
+primaryColor = "#EA580C"
+backgroundColor = "#F6F7FB"
+secondaryBackgroundColor = "#EEF0F4"
+textColor = "#111827"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+baseRadius = "0.6rem"
+borderColor = "#E5E7EB"
+showWidgetBorder = true
+
+[theme.sidebar]
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F8FAFC"
-textColor = "#0F172A"
-font = "sans serif"
+secondaryBackgroundColor = "#F3F4F6"

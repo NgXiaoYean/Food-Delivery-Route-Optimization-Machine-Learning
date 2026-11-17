@@ -1,14 +1,16 @@
 """
-Part B – Refining and Optimising the DQN System:
-  1. Automated Hyperparameter & Architecture Search (Random/Grid search over LR, Gamma,
-     Hidden Units, Target Update Frequency, and Double DQN update rule).
-  2. Model Combination / Ensembling (Blending DQN v2 + DQN v3 + Tuned Double DQN Q-values
-     with cycle-prevention memory to combine global reliability with local hotspot avoidance).
-  3. Robustness Testing Across Extreme Situations (Normal vs 100% Traffic Jam vs
-     100% Stormy Weather vs High-Congestion 30% Hotspot Map).
-  4. Automated Pipeline saving all tables (.csv), model weights (.pt), and charts (.png).
+Part B – Refining and Optimising the DQN System.
 
-Run from project root:  python dqn/part_b_refine.py
+Current CLI: standard-DQN tuning across seeds, validation-only selection,
+deadline/reward ablations, dynamic traffic and held-out scenario evaluation.
+See dqn/README_V4.md for commands, simulator assumptions and reporting limits.
+
+Historical v2/v3 helpers are retained below for reference. The command-line
+entry point now runs the isolated v4 standard-DQN protocol, with separate
+validation/test partitions and new output directories. Historical artifacts
+are not overwritten. Use --smoke for a small validation-only integration run.
+
+Run from project root:  python -B dqn/part_b_refine.py --help
 """
 import random
 import sys
@@ -17,6 +19,13 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
+
+# Dispatch before importing historical helpers: importing evaluate.py creates
+# shared output directories, which the isolated v4 CLI does not need.
+if __name__ == "__main__":
+    from dqn.run_experiments import main
+    main()
+    raise SystemExit(0)
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -337,55 +346,3 @@ def plot_part_b_results(df_tune, df_ensemble, df_stress):
     plt.savefig(out_path, dpi=180, bbox_inches="tight")
     plt.close()
     print(f"\nSaved Part B visual summary chart to: {out_path}")
-
-
-if __name__ == "__main__":
-    orders = load_orders(BASE_DIR / "data" / "dataset_clean.csv")
-    train_orders, test_orders = split_orders(orders)
-
-    # 1. Run automated tuning & Double DQN training
-    best_ddqn, best_cfg, _, df_tune = run_hyperparameter_search(train_orders, test_orders)
-
-    # 2. Load existing DQN v2 and DQN v3 for Ensembling
-    net_v2 = QNetwork()
-    net_v2.load_state_dict(torch.load(RESULT_DIR / "dqn_model_v2.pt", map_location="cpu", weights_only=True))
-    net_v2.eval()
-
-    net_v3 = QNetwork(obs_dim=OBS_DIM_V3)
-    net_v3.load_state_dict(torch.load(RESULT_DIR / "dqn_model_v3.pt", map_location="cpu", weights_only=True))
-    net_v3.eval()
-
-    best_ddqn.eval()
-
-    # Build policies
-    from dqn.dqn_v2 import dqn_policy as dqn_policy_v2
-    ensemble_pol = make_ensemble_policy(net_v2, net_v3, best_ddqn)
-
-    test_env = DeliveryEnv(test_orders)
-    print("\n" + "=" * 70)
-    print("PART B.2: EVALUATING INDIVIDUAL MODELS VS COMBINED ENSEMBLE")
-    print("=" * 70)
-
-    comparison_policies = {
-        "Greedy": greedy_policy,
-        "DQN v2": dqn_policy_v2(net_v2),
-        "DQN v3": dqn_policy_v3(net_v3),
-        "Tuned DDQN": dqn_policy_v3(best_ddqn),
-        "Ensemble DQN": ensemble_pol,
-        "Planner": planner_policy,
-    }
-
-    ens_rows = []
-    for name, pol in comparison_policies.items():
-        res = evaluate_with_hotspots(pol, test_env, episodes=500, name=name)
-        ens_rows.append(res)
-
-    df_ensemble = pd.DataFrame(ens_rows)
-    print(df_ensemble.round(3).to_string(index=False))
-    df_ensemble.to_csv(RESULT_DIR / "part_b_ensemble_results.csv", index=False)
-
-    # 3. Run Stress Tests across different situations
-    df_stress = run_stress_tests(test_orders, comparison_policies)
-
-    # 4. Generate Part B plots
-    plot_part_b_results(df_tune, df_ensemble, df_stress)
