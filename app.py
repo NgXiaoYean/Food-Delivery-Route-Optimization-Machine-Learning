@@ -88,21 +88,15 @@ ROUTE_STYLES = {
     "Random Baseline": {"color": "#94A3B8", "weight": 2, "dash": "4, 6"},
     "Shortest-Time Planner (Dijkstra)": {"color": "#475569", "weight": 3, "dash": "4, 4"},
     "Dueling Double DQN (DDQN)": {"color": "#2563EB", "weight": 4, "dash": None},
-    "Deep Q-Network (DQN v2)": {"color": "#0284C7", "weight": 4, "dash": None},
-    "Deep Q-Network (DQN v3)": {"color": "#0D9488", "weight": 4, "dash": None},
+    "Deep Q-Network (DQN)": {"color": "#0891B2", "weight": 4, "dash": None},
     "Tabular Q-Learning": {"color": "#4F46E5", "weight": 4, "dash": None},
-    "Deep Q-Network (DQN v1)": {"color": "#7C3AED", "weight": 3, "dash": "4, 4"},
-    "Deep Q-Network (Tuned)": {"color": "#0891B2", "weight": 4, "dash": None},
     "Ensemble (QL + DQN + DDQN)": {"color": "#0F766E", "weight": 4, "dash": None},
 }
 
 MODEL_INFO = {
     "Dueling Double DQN (DDQN)": ("Dueling Double DQN", "Best all-rounder. Learns to steer around traffic hotspots."),
-    "Deep Q-Network (DQN v2)": ("Deep Q-Network v2", "Neural network that learned direction and distance."),
-    "Deep Q-Network (DQN v3)": ("Deep Q-Network v3", "DQN v2 plus a short-range traffic radar."),
+    "Deep Q-Network (DQN)": ("Deep Q-Network", "Learns which way to move using the destination and nearby traffic."),
     "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
-    "Deep Q-Network (DQN v1)": ("Deep Q-Network v1", "Early version using raw map coordinates."),
-    "Deep Q-Network (Tuned)": ("Deep Q-Network (tuned)", "DQN v3 after hyperparameter search (Part B)."),
     "Ensemble (QL + DQN + DDQN)": ("Ensemble (all models)", "Combines the votes of all three AI model families."),
     "Direct Route (Baseline)": ("Direct route", "Heads straight for the customer and ignores traffic."),
     "Shortest-Time Planner (Dijkstra)": ("Shortest-path planner", "Classic map search that sees all traffic in advance."),
@@ -451,24 +445,24 @@ def load_system_resources():
             except Exception:
                 pass
 
+    # Present one DQN choice. Earlier checkpoints remain available for research.
+    if m_tuned is not None:
+        policies["Deep Q-Network (DQN)"] = dqn_policy_v3(m_tuned)
+    elif m3 is not None:
+        policies["Deep Q-Network (DQN)"] = dqn_policy_v3(m3)
+    elif m2 is not None:
+        policies["Deep Q-Network (DQN)"] = dqn_policy_v2(m2)
+    elif m1 is not None:
+        policies["Deep Q-Network (DQN)"] = dqn_policy_v1(m1)
     if ddqn_net is not None:
         try:
             from d3qn.d3qn_pipeline import make_d3qn_policy
             policies["Dueling Double DQN (DDQN)"] = make_d3qn_policy(ddqn_net)
         except Exception:
             policies["Dueling Double DQN (DDQN)"] = dqn_policy_v3(ddqn_net)
-    # Best DQN first so it is the app's default model (tuned > v3 > v2 on the 500-order test)
-    if m_tuned is not None:
-        policies["Deep Q-Network (Tuned)"] = dqn_policy_v3(m_tuned)
-    if m3 is not None:
-        policies["Deep Q-Network (DQN v3)"] = dqn_policy_v3(m3)
-    if m2 is not None:
-        policies["Deep Q-Network (DQN v2)"] = dqn_policy_v2(m2)
     if ql_agent is not None:
         from q_learning.q_learning_pipeline import make_ql_policy
         policies["Tabular Q-Learning"] = make_ql_policy(ql_agent)
-    if m1 is not None:
-        policies["Deep Q-Network (DQN v1)"] = dqn_policy_v1(m1)
     if m2 is not None and ddqn_net is not None:
         policies["Ensemble (QL + DQN + DDQN)"] = make_cross_algorithm_ensemble(
             ql_agent, m2, m3, ddqn_net
@@ -1095,6 +1089,13 @@ def build_route_map(
     # Customer Drop-off Home Markers with Order ID & ETA hover tooltips
     if dropoff_sequence:
         for d_stop in dropoff_sequence:
+            if len(dropoff_sequence) == 1 and not first_sim["delivered"]:
+                folium.Marker(
+                    location=[d_stop["cust_lat"], d_stop["cust_lon"]],
+                    tooltip=f"Customer for order #{d_stop['order_id']} — not reached",
+                    icon=make_pin_icon("🏠", "Customer · not reached", "#DC2626", "#7F1D1D"),
+                ).add_to(m)
+                continue
             sla_txt = "Compliant" if d_stop["sla_compliant"] else "Breached"
             bg_c = "#1D4ED8" if d_stop["sla_compliant"] else "#DC2626"
             bd_c = "#1E3A8A" if d_stop["sla_compliant"] else "#7F1D1D"
@@ -1124,6 +1125,9 @@ def build_route_map(
         if (mapObj && typeof L !== "undefined") {{
             // Re-fit once the iframe has its real size (fitBounds at 0px size zooms far out).
             var fitBox = {json.dumps(fit_box)};
+            var showPickup = {json.dumps(bool(include_pickup_leg or (batch_orders and len(batch_orders) > 1 and diff_restaurants)))};
+            var showDirect = {json.dumps('Direct Route (Baseline)' in sims and primary_model != 'Direct Route (Baseline)')};
+            var showTraffic = {json.dumps(bool(show_hotspots))};
             var refit = function() {{ mapObj.invalidateSize(); mapObj.fitBounds(fitBox); }};
             refit();
             if (window.ResizeObserver) {{
@@ -1149,22 +1153,23 @@ def build_route_map(
                     '<div style="font-weight:700;margin-bottom:3px;color:#1E293B;font-size:12px;">Legend</div>' +
                     '<div style="display:flex;align-items:center;gap:7px;">' +
                         '<span style="display:inline-block;width:18px;height:3.5px;background:#2563EB;border-radius:2px;"></span>' +
-                        '<span>AI route</span>' +
+                        '<span>Chosen route</span>' +
                     '</div>' +
-                    '<div style="display:flex;align-items:center;gap:7px;">' +
+                    (showPickup ? '<div style="display:flex;align-items:center;gap:7px;">' +
                         '<span style="display:inline-block;width:18px;height:0;border-top:3px dashed #16A34A;"></span>' +
                         '<span>Ride to restaurant</span>' +
-                    '</div>' +
-                    '<div style="display:flex;align-items:center;gap:7px;">' +
+                    '</div>' : '') +
+                    (showDirect ? '<div style="display:flex;align-items:center;gap:7px;">' +
                         '<span style="display:inline-block;width:18px;height:0;border-top:2.5px dashed #64748B;"></span>' +
                         '<span>Direct route (for comparison)</span>' +
-                    '</div>' +
+                    '</div>' : '') +
                     '<div style="display:flex;align-items:center;gap:6px;margin-top:2px;">' +
-                        '<span>🛵 Rider</span><span>&middot;</span>' +
                         '<span>🏪 Restaurant</span><span>&middot;</span>' +
-                        '<span>🏠 Customer</span><span>&middot;</span>' +
+                        '<span>🏠 Customer</span>' +
+                        (showPickup ? '<span>&middot;</span><span>🛵 Rider</span>' : '') +
+                        (showTraffic ? '<span>&middot;</span>' +
                         '<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:#F59E0B;color:#fff;border-radius:50%;font-size:9px;font-weight:700;">!</span>' +
-                        '<span>Traffic jam</span>' +
+                        '<span>Traffic jam</span>' : '') +
                     '</div>';
                 return div;
             }};
@@ -1266,29 +1271,31 @@ def step_head(num: int, text: str) -> None:
 
 
 # ==============================================================================
-# SIDEBAR: 3 SIMPLE STEPS (advanced options tucked into expanders)
+# SIDEBAR: start with one delivery; keep optional scenarios and batching separate
 # ==============================================================================
 with st.sidebar:
     st.markdown(
         '<div class="brand"><div class="brand-logo">🛵</div><div>'
         '<div class="brand-name">Route Planner</div>'
-        '<div class="brand-sub">AI routing for food delivery</div></div></div>',
+        '<div class="brand-sub">Start here · one delivery</div></div></div>',
         unsafe_allow_html=True,
     )
 
+    st.caption("Start here: choose an order and a model. The route updates automatically.")
+
     # ---- Step 1: Order ----
-    step_head(1, "Pick an order")
-    use_custom = st.toggle(
-        "Build my own scenario",
-        value=False,
-        help="Off: replay a real order from the Zomato dataset. On: set traffic and weather yourself.",
-    )
+    step_head(1, "Choose an order")
+    with st.expander("Advanced: create your own scenario"):
+        use_custom = st.toggle(
+            "Set traffic, weather and trip length myself",
+            value=False,
+            help="Off: use an example order. On: build a simulated trip.",
+        )
 
     if not use_custom:
-        city_list = sorted(catalog_df["city"].unique().tolist())
-        selected_city = st.selectbox("City", options=["All cities"] + city_list, index=0)
-
-        with st.expander("Filter by traffic"):
+        with st.expander("Find another example order"):
+            city_list = sorted(catalog_df["city"].unique().tolist())
+            selected_city = st.selectbox("City", options=["All cities"] + city_list, index=0)
             selected_traffic = st.segmented_control(
                 "Traffic at order time",
                 options=["Low", "Medium", "High", "Jam"],
@@ -1312,7 +1319,7 @@ with st.sidebar:
             for _, row in filtered_cat.iterrows()
         }
         selected_seed = st.selectbox(
-            f"Order ({len(order_options)} available)",
+            f"Example order ({len(order_options)} available)",
             options=order_options,
             index=order_options.index(7) if 7 in order_options else 0,
             format_func=lambda s: order_labels[s],
@@ -1365,51 +1372,24 @@ with st.sidebar:
             "dest": (int(dr), int(dc)),
         }
 
-    # ---- Step 2: Trip ----
-    step_head(2, "Set up the trip")
-    n_choice = st.segmented_control(
-        "Orders the rider carries",
-        options=[1, 2, 3],
-        default=2,
-        format_func=lambda n: f"{n} order" if n == 1 else f"{n} orders",
-        help="Batch nearby orders (restaurants within 2.5 km) into one trip.",
-    )
-    with st.expander("More trip options"):
-        match_dataset = st.toggle(
-            "Use the order's real batch size",
-            value=False,
-            help="Ignore the choice above and use the number of orders recorded in the dataset.",
-        )
-        diff_restaurants = st.toggle(
-            "Pick up from different restaurants",
-            value=True,
-            help="On: each order comes from a different nearby restaurant. Off: all orders come from one restaurant.",
-        )
-        include_pickup_leg = st.toggle(
-            "Show rider's trip to the restaurant",
-            value=True,
-            help="Draw the rider's ride from their starting point to the first restaurant.",
-        )
-
-    # ---- Step 3: Model ----
-    step_head(3, "Choose the AI model")
+    # ---- Step 2: Model ----
+    step_head(2, "Choose a route planner")
     policy_names = list(all_policies.keys())
     primary_model = st.selectbox(
         "Routing model",
         options=policy_names,
         index=0,
         format_func=model_label,
-        label_visibility="collapsed",
     )
     st.markdown(f'<div class="model-hint">{model_desc(primary_model)}</div>', unsafe_allow_html=True)
-    show_baseline = st.toggle(
-        "Compare with the direct route",
-        value=True,
-        help="Also draw the naive straight-to-customer route (grey dashed line) to see the time saved.",
-    )
-    with st.expander("Map & comparison options"):
+    with st.expander("Optional: compare routes and change the map"):
+        show_baseline = st.toggle(
+            "Show the direct route for comparison",
+            value=False,
+            help="Draw a grey route that ignores traffic beside the chosen route.",
+        )
         extra_models = st.multiselect(
-            "Also draw these models",
+            "Also show these models",
             options=[p for p in policy_names if p not in (primary_model, "Direct Route (Baseline)")],
             default=[],
             format_func=model_label,
@@ -1423,6 +1403,33 @@ with st.sidebar:
         )
         show_hotspots = st.toggle("Show traffic jam zones", value=True)
 
+    with st.expander("Advanced: preview a batch of orders"):
+        st.caption(
+            "The chosen model plans one delivery. Extra stops use estimated travel times; "
+            "this is an illustration, not a multi-order AI prediction."
+        )
+        n_choice = st.segmented_control(
+            "Orders in the illustration",
+            options=[1, 2, 3],
+            default=1,
+            format_func=lambda n: f"{n} order" if n == 1 else f"{n} orders",
+        )
+        match_dataset = st.toggle(
+            "Use the example order's recorded batch size",
+            value=False,
+            help="Overrides the number chosen above.",
+        )
+        diff_restaurants = st.toggle(
+            "Pick up from different restaurants",
+            value=True,
+        )
+        include_pickup_leg = st.toggle(
+            "Show the rider's trip to the restaurant",
+            value=False,
+        )
+
+    st.caption("The “Multi Order D3QN” page above is a separate multi-customer experiment.")
+
     if not TORCH_AVAILABLE:
         st.caption("PyTorch is not installed, so only Q-Learning and the baseline models are available.")
 
@@ -1431,9 +1438,9 @@ with st.sidebar:
 # ==============================================================================
 st.markdown(
     '<div class="hero"><div class="eyebrow">Food delivery · Reinforcement learning</div>'
-    "<h1>Delivery Route Planner</h1>"
-    "<p>Pick an order in the sidebar. The AI plans the rider's route around traffic and checks that "
-    f"every customer gets their food within {SLA_LIMIT_MIN:.0f} minutes of pickup.</p></div>",
+    "<h1>Plan a delivery</h1>"
+    "<p>Choose an example order and a route planner in the sidebar. The result updates automatically. "
+    "Start with one delivery; optional comparisons and batch illustrations are below the main choices.</p></div>",
     unsafe_allow_html=True,
 )
 st.write("")
@@ -1488,6 +1495,23 @@ with tab_map:
     traffic_lbl = TRAFFIC_LABELS[env_ref.traffic]
     weather_lbl = WEATHER_LABELS[env_ref.weather]
 
+    if n_deliveries > 1:
+        st.info(
+            "Batch illustration: the selected model plans the first delivery. "
+            "Travel times for additional stops are estimates, not predictions from a multi-order model."
+        )
+    elif primary_sim["delivered"]:
+        arrival = "on time" if primary_sim["sla_compliant"] else "after the 45-minute target"
+        st.success(
+            f"{model_label(primary_model)} reaches the customer {arrival} "
+            f"in {primary_sim['minutes']:.1f} minutes. Its route is shown on the map below."
+        )
+    else:
+        st.warning(
+            f"{model_label(primary_model)} did not reach the customer within the step limit "
+            "on this example. Try another order or model."
+        )
+
     # ---- Context chips ----
     place = "Custom scenario" if use_custom else f"{order_meta['city']} · {order_meta['area_type']}"
     chips = [
@@ -1505,15 +1529,18 @@ with tab_map:
     # ---- KPI cards ----
     grid_blocks = abs(primary_sim["start"][0] - primary_sim["dest"][0]) + abs(primary_sim["start"][1] - primary_sim["dest"][1])
     if primary_model == "Direct Route (Baseline)":
-        saved_value, saved_sub, saved_tone = "—", "This is the direct route itself", ""
+        saved_label, saved_value, saved_sub, saved_tone = "Time difference", "—", "This is the direct route itself", ""
     elif time_saved > 0:
+        saved_label = "Time saved"
         saved_value = f"{time_saved:.1f} min"
         saved_sub = f"faster than the direct route · {zones_avoided} jam{'s' if zones_avoided != 1 else ''} avoided"
         saved_tone = "good"
     elif time_saved == 0:
+        saved_label = "Time difference"
         saved_value, saved_sub, saved_tone = "0 min", "Same time as the direct route", ""
     else:
-        saved_value = f"{time_saved:.1f} min"
+        saved_label = "Extra time"
+        saved_value = f"{abs(time_saved):.1f} min"
         saved_sub = "slower than the direct route"
         saved_tone = "bad"
 
@@ -1524,6 +1551,14 @@ with tab_map:
         ontime_value = f"{compliant_count}/{n_deliveries}"
         ontime_sub = f"Late — longest wait {batch_summary['max_wait_min']:.0f} min"
         ontime_tone = "bad"
+    if n_deliveries == 1:
+        ontime_value = "Yes" if primary_sim["sla_compliant"] else "No"
+        ontime_sub = (
+            f"Within the {SLA_LIMIT_MIN:.0f}-minute delivery target"
+            if primary_sim["sla_compliant"] else
+            "Destination not reached" if not primary_sim["delivered"] else
+            f"Over the {SLA_LIMIT_MIN:.0f}-minute delivery target"
+        )
 
     st.markdown(
         '<div class="kpi-grid">'
@@ -1535,7 +1570,7 @@ with tab_map:
             else html_kpi("📏", "Distance", f"{batch_summary['total_km']:.1f} km",
                           f"First delivery leg: {order_meta['distance_km']:.1f} km")
         )
-        + html_kpi("⚡", "Time saved", saved_value, saved_sub, saved_tone)
+        + html_kpi("⚡", saved_label, saved_value, saved_sub, saved_tone)
         + html_kpi("✅" if batch_summary["all_compliant"] else "⚠️", "On time", ontime_value, ontime_sub, ontime_tone)
         + "</div>",
         unsafe_allow_html=True,
@@ -1569,8 +1604,8 @@ with tab_map:
         components.html(fmap.get_root().render(), height=540)
         st.markdown(
             '<div class="real-sim">'
-            '<span><span class="tag real">Real</span>Streets, restaurant & customer locations, batched orders</span>'
-            '<span><span class="tag sim">Simulated</span>Traffic jams, rider start point, trip times</span>'
+            '<span><span class="tag real">Real</span>Sample restaurant and customer locations</span>'
+            '<span><span class="tag sim">Simulated</span>Grid route, traffic jams and travel time</span>'
             "<span>ℹ️ The AI plans on a 10×10 grid of city blocks, which is fitted onto the real roads to draw the route.</span>"
             "</div>",
             unsafe_allow_html=True,
@@ -1598,14 +1633,19 @@ with tab_map:
             ids = ", ".join(b["tag"] for b in batch_orders)
             add_stop("store", "🏪", f"Pick up orders {ids}", "All from the same restaurant", 0.0)
 
-        for d_stop in dropoff_sequence:
-            pill = (
-                '<span class="pill good">On time</span>'
-                if d_stop["sla_compliant"]
-                else '<span class="pill bad">Late</span>'
-            )
-            add_stop("home", "🏠", f"Deliver order {d_stop['tag']}",
-                     f"Food in transit {d_stop['wait_min']:.0f} min", d_stop["dropoff_min"], pill)
+        if n_deliveries == 1 and not primary_sim["delivered"]:
+            add_stop("home", "⚠️", "Delivery not completed",
+                     f"Stopped after {primary_sim['steps']} moves", primary_sim["minutes"],
+                     '<span class="pill bad">Not delivered</span>')
+        else:
+            for d_stop in dropoff_sequence:
+                pill = (
+                    '<span class="pill good">On time</span>'
+                    if d_stop["sla_compliant"]
+                    else '<span class="pill bad">Late</span>'
+                )
+                add_stop("home", "🏠", f"Deliver order {d_stop['tag']}",
+                         f"Food in transit {d_stop['wait_min']:.0f} min", d_stop["dropoff_min"], pill)
 
         facts = [
             ("Order", f"#{order_meta['order_id']}"),
@@ -1646,7 +1686,7 @@ with tab_map:
                 hide_index=True,
             )
 
-    with st.expander("How the AI sees the city (10×10 grid view)", expanded=False):
+    with st.expander("Explore the AI grid and watch DQN learn", expanded=False):
         st.caption(
             "The models learn on a simplified 10×10 grid of city blocks. Red cells are traffic jams, "
             "R is the restaurant and C is the customer."
@@ -1661,6 +1701,27 @@ with tab_map:
             f"Moves taken by {model_label(primary_model)} ({primary_sim['steps']} steps, reward {primary_sim['reward']}):"
         )
         st.code(" → ".join(primary_sim["actions"]) or "Already at destination", language="text")
+        if TORCH_AVAILABLE:
+            st.markdown("**Watch a DQN learn on this grid**")
+            st.caption(
+                "Train a small DQN on the displayed restaurant, customer and traffic cells. "
+                "Choose a training stage, then play or step through the rider's route and reward feedback. "
+                "This teaching demo trains in memory and is separate from the evaluated DQN above."
+            )
+            demo_key = (
+                tuple(primary_sim["start"]), tuple(primary_sim["dest"]),
+                tuple(tuple(map(int, cell)) for cell in np.argwhere(primary_sim["env"].hotspots)),
+            )
+            if st.button("Train DQN learning demo", key="train_dqn_learning_demo"):
+                from dqn.learning_demo import train_demo
+                with st.spinner("Training demo DQN on this grid..."):
+                    st.session_state["dqn_learning_demo"] = (
+                        demo_key, train_demo(*demo_key)
+                    )
+            saved_demo = st.session_state.get("dqn_learning_demo")
+            if saved_demo and saved_demo[0] == demo_key:
+                from dqn.learning_demo import animation_html
+                components.html(animation_html(saved_demo[1]), height=650)
 
 # ------------------------------------------------------------------------------
 # TAB 2: COMPARE MODELS
