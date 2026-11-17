@@ -46,7 +46,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
 QL_RESULT_DIR = BASE_DIR / "q_learning" / "result"
 DQN_RESULT_DIR = BASE_DIR / "dqn" / "result"
-DDQN_RESULT_DIR = BASE_DIR / "ddqn" / "result"
+D3QN_RESULT_DIR = BASE_DIR / "d3qn" / "result"
 MASTER_RESULT_DIR = BASE_DIR / "result"
 ERR_RESULT_DIR = MASTER_RESULT_DIR / "error_analysis"
 EDA_DIR = BASE_DIR / "exploration" / "zomato_exploration"
@@ -443,15 +443,8 @@ def load_system_resources():
             except Exception:
                 m_tuned = None
 
-        d3qn_ckpt = BASE_DIR / "d3qn" / "result" / "d3qn_model_best.pt"
-        ddqn_ckpt = DDQN_RESULT_DIR / "ddqn_model_best.pt"
-        if ddqn_ckpt.exists():
-            try:
-                from ddqn.ddqn_pipeline import load_best_ddqn, make_ddqn_policy
-                ddqn_net = load_best_ddqn(ddqn_ckpt)
-            except Exception:
-                pass
-        elif d3qn_ckpt.exists():
+        d3qn_ckpt = D3QN_RESULT_DIR / "d3qn_model_best.pt"
+        if d3qn_ckpt.exists():
             try:
                 from d3qn.d3qn_pipeline import load_best_d3qn, make_d3qn_policy
                 ddqn_net = load_best_d3qn(d3qn_ckpt)
@@ -460,8 +453,8 @@ def load_system_resources():
 
     if ddqn_net is not None:
         try:
-            from ddqn.ddqn_pipeline import make_ddqn_policy
-            policies["Dueling Double DQN (DDQN)"] = make_ddqn_policy(ddqn_net)
+            from d3qn.d3qn_pipeline import make_d3qn_policy
+            policies["Dueling Double DQN (DDQN)"] = make_d3qn_policy(ddqn_net)
         except Exception:
             policies["Dueling Double DQN (DDQN)"] = dqn_policy_v3(ddqn_net)
     # Best DQN first so it is the app's default model (tuned > v3 > v2 on the 500-order test)
@@ -1733,7 +1726,7 @@ with tab_compare:
         (DQN_RESULT_DIR / "dqn_learning_curve_v1.png", "Deep Q-Network v1"),
         (DQN_RESULT_DIR / "dqn_learning_curve_v2.png", "Deep Q-Network v2"),
         (DQN_RESULT_DIR / "dqn_learning_curve_v3.png", "Deep Q-Network v3"),
-        (DDQN_RESULT_DIR / "ddqn_learning_curves.png", "Double DQN vs. Dueling DDQN"),
+        (D3QN_RESULT_DIR / "d3qn_learning_curves.png", "Double DQN vs. Dueling DDQN"),
     ]
     curves = [(p, c) for p, c in curves if p.exists()]
 
@@ -1776,7 +1769,7 @@ with tab_research:
         (DQN_RESULT_DIR / "part_b_tuning_results.csv", "DQN settings (validation results per configuration)"),
         (DQN_RESULT_DIR / "part_b_ensemble_results.csv", "DQN versions compared (500 test orders)"),
         (QL_RESULT_DIR / "ql_part_b_tuning.csv", "Q-Learning settings"),
-        (DDQN_RESULT_DIR / "ddqn_part_b_tuning.csv", "Dueling DDQN settings"),
+        (D3QN_RESULT_DIR / "d3qn_part_b_tuning.csv", "Dueling DDQN settings"),
     ]
     if any(p.exists() for p, _ in tuning_files):
         any_shown = True
