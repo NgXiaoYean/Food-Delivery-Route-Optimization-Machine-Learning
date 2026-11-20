@@ -12,6 +12,8 @@ from dqn.dqn_v4 import Config, bellman_targets, load_checkpoint, policy, save_ch
 from dqn.dynamic_env import Conditions, DynamicDeliveryEnv, features
 from dqn.evaluate_dqn import evaluate, greedy_policy, paired_interval, planner_policy, summarize
 from dqn.experiments import MAP_BANKS, split_orders_three_way, training_scale
+from dqn.hparam_search import (SEARCH_SPACE, grid_run_count, rung_budgets, sample_configs,
+                               successive_halving)
 
 
 def orders():
@@ -223,6 +225,44 @@ class LearningTests(unittest.TestCase):
             self.assertEqual(policy(net)(env), policy(restored)(env))
             for a, b in zip(net.parameters(), restored.parameters()):
                 torch.testing.assert_close(a, b)
+
+
+class SearchTests(unittest.TestCase):
+    def test_random_trials_are_reproducible_and_inside_the_space(self):
+        first = sample_configs(Config(), 8, seed=5)
+        self.assertEqual(first, sample_configs(Config(), 8, seed=5))
+        self.assertNotEqual(first, sample_configs(Config(), 8, seed=6))
+        for cfg in first.values():
+            for name, (kind, *spec) in SEARCH_SPACE.items():
+                value = getattr(cfg, name)
+                if kind == "choice":
+                    self.assertIn(value, spec[0])
+                else:
+                    self.assertTrue(spec[0] * 0.99 <= value <= spec[1] * 1.01, (name, value))
+
+    def test_random_search_tries_more_distinct_values_than_grid(self):
+        trials = sample_configs(Config(), 12, seed=0)
+        self.assertGreater(len({c.lr for c in trials.values()}), 4)
+        self.assertGreater(grid_run_count(), 1000)
+
+    def test_rung_budgets_grow_and_stay_below_full_budget(self):
+        self.assertEqual(rung_budgets(60_000, 2, 2), [15_000, 30_000])
+        self.assertEqual(rung_budgets(60_000, 1, 3), [20_000])
+
+    def test_successive_halving_keeps_best_and_drops_weak_early(self):
+        quality = {"a": 0.9, "b": 0.1, "c": 0.5, "d": 0.7}
+        configs = {name: Config() for name in quality}
+        calls = []
+
+        def score(name, config):
+            calls.append((name, config.total_steps))
+            return dict(success_rate=quality[name], mean_common_return=0.0)
+
+        finalists, rows = successive_halving(configs, score, total_steps=400, rungs=2, eta=2, keep=1)
+        self.assertEqual(finalists, ["a"])
+        self.assertEqual([n for n, steps in calls if steps == 100], ["a", "b", "c", "d"])
+        self.assertEqual(sorted(n for n, steps in calls if steps == 200), ["a", "d"])
+        self.assertEqual(sum(r["promoted"] for r in rows if r["rung"] == 0), 2)
 
 
 if __name__ == "__main__":

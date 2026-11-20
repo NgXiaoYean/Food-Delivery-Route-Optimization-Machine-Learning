@@ -2,6 +2,7 @@
 
 python -B -m dqn.run_experiments --smoke
 python -B -m dqn.run_experiments --steps 60000 --seeds 11 22 33
+python -B -m dqn.run_experiments --search random --trials 12 --finalists 3
 """
 import argparse
 from dataclasses import asdict, replace
@@ -16,6 +17,8 @@ import torch
 
 from env import load_orders
 from dqn.dqn_v4 import Config, policy, save_checkpoint, train
+from dqn.hparam_search import (SEARCH_SPACE, grid_run_count, rung_budgets, sample_configs,
+                               successive_halving)
 from dqn.dynamic_env import DynamicDeliveryEnv, MOVES, features
 from dqn.evaluate_dqn import evaluate, greedy_policy, paired_interval, planner_policy, summarize
 from dqn.experiments import (MAP_BANKS, dataset_hash, split_manifest,
@@ -69,9 +72,19 @@ def parse_args(argv=None):
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--validation-only", action="store_true", help="Do not open final-test evaluation")
     parser.add_argument("--smoke", action="store_true", help="Tiny validation-only integration check")
+    parser.add_argument("--search", choices=("manual", "random"), default="manual",
+                        help="manual = the 4 hand-picked settings; random = random search + successive halving")
+    parser.add_argument("--trials", type=int, default=12, help="Random-search trials (with --search random)")
+    parser.add_argument("--finalists", type=int, default=3,
+                        help="Random-search trials that reach full multi-seed selection")
+    parser.add_argument("--search-seed", type=int, default=0, help="Seed that draws the random trials")
+    parser.add_argument("--rungs", type=int, default=2, help="Successive-halving rounds before the finalists")
+    parser.add_argument("--eta", type=int, default=2, help="Keep 1/eta of the trials after each round")
     args = parser.parse_args(argv)
     if args.steps < 1 or args.eval_episodes < 1 or args.threads < 1:
         parser.error("steps, eval-episodes and threads must be positive")
+    if args.trials < 1 or not 1 <= args.finalists <= args.trials or args.rungs < 1 or args.eta < 2:
+        parser.error("Need trials >= 1, 1 <= finalists <= trials, rungs >= 1 and eta >= 2")
     if min(args.seeds) < 0 or max(args.seeds) > 1000 or len(set(args.seeds)) != len(args.seeds):
         parser.error("Use distinct training seeds in 0..1000")
     return args
@@ -81,6 +94,7 @@ def main(argv=None):
     args = parse_args(argv)
     if args.smoke:
         args.steps, args.seeds, args.eval_episodes, args.validation_only = 256, [11], 4, True
+        args.trials, args.finalists = min(args.trials, 4), 1
     torch.set_num_threads(args.threads)
     torch.use_deterministic_algorithms(True)
     base_dir = ROOT / "dqn/result/v4"
@@ -103,8 +117,10 @@ def main(argv=None):
         "lower_gamma": replace(cfg, gamma=0.95),
         "faster_target": replace(cfg, target_update=250 if not args.smoke else 32),
     }
-    if args.smoke:
-        candidates = dict(list(candidates.items())[:2])
+    if args.smoke or args.search == "random":
+        # Random search replaces the hand-picked alternatives but keeps the
+        # default settings as the reference point.
+        candidates = dict(list(candidates.items())[:1 if args.search == "random" else 2])
     manifest = dict(run_id=run_id, status="running", smoke=args.smoke,
                     validation_only=args.validation_only, algorithm="standard_dqn",
                     data_sha256=dataset_hash(args.data), split_seed=42,
@@ -118,6 +134,12 @@ def main(argv=None):
                                      stress_interval_min=4, deadline="historical duration proxy",
                                      move_cost_timing="departure snapshot"),
                     candidates={name: asdict(c) for name, c in candidates.items()},
+                    search=dict(method=args.search, trials=args.trials, finalists=args.finalists,
+                                search_seed=args.search_seed, rungs=args.rungs, eta=args.eta,
+                                search_training_seed=args.seeds[0], space=SEARCH_SPACE,
+                                rung_steps=rung_budgets(args.steps, args.rungs, args.eta),
+                                equivalent_grid_runs=grid_run_count())
+                    if args.search == "random" else dict(method="manual"),
                     variants=VARIANTS,
                     test_caveat="Preserves historical team test rows, previously inspected; new map/event seeds are held out.")
     write_json(output / "manifest.json", manifest)
@@ -138,6 +160,35 @@ def main(argv=None):
         pd.DataFrame(history).to_csv(output / f"{label}_seed{seed}_learning.csv", index=False)
         print(f"Trained {label} seed={seed}: {stats['updates']} updates in {time.perf_counter()-started:.1f}s", flush=True)
         return net
+
+    if args.search == "random":
+        trials = sample_configs(cfg, args.trials, args.search_seed)
+        search_seed = args.seeds[0]
+
+        def score(name, config):
+            started = time.perf_counter()
+            env = make_env(train_orders, scale, "train")
+            net, _, _ = train(env, config, seed=search_seed, feature_mode="deadline")
+            frame = evaluate(policy(net), make_env(validation_orders, scale, "validation"),
+                             episodes=args.eval_episodes, agent=name, training_seed=search_seed)
+            result = summarize(frame)
+            print(f"Search {name} at {config.total_steps} steps: success={result['success_rate']:.2f} "
+                  f"common return={result['mean_common_return']:.1f} "
+                  f"({time.perf_counter()-started:.1f}s)", flush=True)
+            return dict(success_rate=result["success_rate"],
+                        mean_common_return=result["mean_common_return"])
+
+        finalists, search_rows = successive_halving(
+            trials, score, total_steps=args.steps, rungs=args.rungs, eta=args.eta,
+            keep=args.finalists)
+        pd.DataFrame(search_rows).to_csv(output / "random_search.csv", index=False)
+        candidates.update({name: trials[name] for name in finalists})
+        manifest["candidates"] = {name: asdict(c) for name, c in candidates.items()}
+        manifest["search"]["finalists"] = finalists
+        manifest["search"]["search_steps"] = int(sum(r["steps"] for r in search_rows))
+        write_json(output / "manifest.json", manifest)
+        print(f"Random-search finalists: {', '.join(finalists)} "
+              f"(a full grid over the same space would need {grid_run_count()} runs)", flush=True)
 
     # Selection sees validation orders and validation maps/events only.
     validation_details = []
