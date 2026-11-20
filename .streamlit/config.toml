@@ -12,3 +12,8 @@ showWidgetBorder = true
 [theme.sidebar]
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F3F4F6"
+
+[client]
+# The automatic page list shows raw file names ("app", "Multi Order D3QN").
+# ui_shared.sidebar_header() draws a clearer switcher on both pages instead.
+showSidebarNavigation = false

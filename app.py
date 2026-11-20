@@ -24,6 +24,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from env import DeliveryEnv, TRAFFIC_MAP, WEATHER_MAP, haversine_km, load_orders
 from shared import split_orders
+from ui_shared import apply_theme, page_hero, sidebar_header, step_head
 from evaluate import (
     greedy_policy,
     make_cross_algorithm_ensemble,
@@ -118,157 +119,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.markdown(
-    """
-    <style>
-    :root {
-        --ink: #111827;
-        --ink-2: #374151;
-        --muted: #6B7280;
-        --line: #E5E7EB;
-        --line-soft: #F1F2F5;
-        --surface: #FFFFFF;
-        --canvas: #F6F7FB;
-        --brand: #EA580C;
-        --brand-soft: #FFF1E7;
-        --route: #2563EB;
-        --good: #15803D;
-        --good-soft: #DCFCE7;
-        --bad: #B91C1C;
-        --bad-soft: #FEE2E2;
-        --warn-soft: #FEF3C7;
-    }
-    .block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1380px; }
-    header[data-testid="stHeader"] { background: transparent; }
-    section[data-testid="stSidebar"] { border-right: 1px solid var(--line); }
-    /* Compact option buttons so 3-4 choices fit on one line in the sidebar */
-    section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button {
-        padding-left: 9px !important; padding-right: 9px !important; min-width: 0 !important;
-    }
-    section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button p { font-size: 0.85rem !important; }
-    section[data-testid="stSidebar"] .block-container { padding-top: 1.5rem; }
-
-    /* ---------- Sidebar ---------- */
-    .brand { display:flex; align-items:center; gap:10px; margin-bottom: 0.4rem; }
-    .brand-logo {
-        width: 36px; height: 36px; border-radius: 10px; background: var(--brand);
-        display:flex; align-items:center; justify-content:center; font-size: 19px;
-    }
-    .brand-name { font-weight: 800; font-size: 1.02rem; color: var(--ink); line-height: 1.1; }
-    .brand-sub { font-size: 0.75rem; color: var(--muted); }
-    .step-head {
-        display:flex; align-items:center; gap:9px; margin: 1.1rem 0 0.35rem;
-        font-weight: 700; font-size: 0.95rem; color: var(--ink);
-    }
-    .step-num {
-        width: 22px; height: 22px; border-radius: 50%; background: var(--brand-soft); color: var(--brand);
-        display:inline-flex; align-items:center; justify-content:center; font-size: 0.75rem; font-weight: 800;
-    }
-    .model-hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.45rem; margin-bottom: 0.4rem; }
-
-    /* ---------- Hero ---------- */
-    .hero h1 {
-        font-size: 2.05rem; font-weight: 800; letter-spacing: -0.02em; color: var(--ink);
-        margin: 0; padding: 0; line-height: 1.15;
-    }
-    .hero p { color: var(--muted); font-size: 0.98rem; margin: 0.35rem 0 0; max-width: 760px; }
-    .eyebrow {
-        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
-        color: var(--brand); margin-bottom: 0.3rem;
-    }
-
-    /* ---------- Tabs ---------- */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 4px; background: var(--surface); padding: 5px; border-radius: 12px;
-        border: 1px solid var(--line); width: fit-content; max-width: 100%;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 38px; padding: 0 18px; border-radius: 8px; background: transparent;
-    }
-    .stTabs [data-baseweb="tab"] p { font-weight: 600; font-size: 0.92rem; }
-    .stTabs [aria-selected="true"] { background: var(--brand-soft); }
-    .stTabs [aria-selected="true"] p { color: var(--brand); }
-    .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-
-    /* ---------- Chips ---------- */
-    .chips { display:flex; flex-wrap:wrap; gap:8px; margin: 0.2rem 0 1rem; }
-    .chip {
-        display:inline-flex; align-items:center; gap:6px; background: var(--surface);
-        border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
-        font-size: 0.83rem; color: var(--ink-2); font-weight: 500;
-    }
-
-    /* ---------- KPI cards ---------- */
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 1.1rem; }
-    .kpi {
-        background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
-        padding: 16px 18px; box-shadow: 0 1px 2px rgba(17,24,39,0.04);
-    }
-    .kpi-label { font-size: 0.82rem; color: var(--muted); font-weight: 600; display:flex; align-items:center; gap:7px; }
-    .kpi-value { font-size: 1.75rem; font-weight: 800; color: var(--ink); margin-top: 6px; letter-spacing: -0.01em; }
-    .kpi-value.text { font-size: 1.2rem; line-height: 1.3; }
-    .kpi-sub { font-size: 0.8rem; margin-top: 4px; color: var(--muted); }
-    .kpi-sub.good { color: var(--good); font-weight: 600; }
-    .kpi-sub.bad { color: var(--bad); font-weight: 600; }
-
-    /* ---------- Cards / panels ---------- */
-    .panel {
-        background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
-        padding: 18px 18px 8px;
-    }
-    .panel-title { font-weight: 700; font-size: 1rem; color: var(--ink); margin-bottom: 2px; }
-    .panel-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
-    .note {
-        display:flex; gap:10px; align-items:flex-start; border-radius: 12px; padding: 10px 14px;
-        font-size: 0.84rem; line-height: 1.45; color: var(--ink-2); margin: 0 0 12px;
-        background: #EFF6FF; border: 1px solid #BFDBFE;
-    }
-    .note.warm { background: var(--brand-soft); border-color: #FED7AA; }
-    .note b { color: var(--ink); }
-    .note-icon { font-size: 1rem; line-height: 1.3; }
-    .real-sim { display:flex; flex-wrap:wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--muted); margin: 8px 2px 0; }
-    .real-sim .tag { font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-right: 4px; font-size: 0.72rem; }
-    .real-sim .tag.real { background: var(--good-soft); color: var(--good); }
-    .real-sim .tag.sim { background: var(--warn-soft); color: #92400E; }
-    .map-frame { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
-
-    /* ---------- Trip timeline ---------- */
-    .stops { position: relative; margin: 6px 0 10px; }
-    .stop { display:flex; gap: 12px; position: relative; padding-bottom: 16px; }
-    .stop:not(:last-child)::before {
-        content: ""; position: absolute; left: 15px; top: 32px; bottom: 0; width: 2px; background: var(--line);
-    }
-    .stop-icon {
-        flex: 0 0 32px; height: 32px; border-radius: 50%; display:flex; align-items:center; justify-content:center;
-        font-size: 15px; background: var(--line-soft); border: 1px solid var(--line);
-    }
-    .stop-icon.rider { background: #FFEDD5; border-color: #FED7AA; }
-    .stop-icon.store { background: #DCFCE7; border-color: #BBF7D0; }
-    .stop-icon.home { background: #DBEAFE; border-color: #BFDBFE; }
-    .stop-body { flex: 1; min-width: 0; }
-    .stop-row { display:flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-    .stop-title { font-weight: 650; font-size: 0.9rem; color: var(--ink); }
-    .stop-time { font-weight: 700; font-size: 0.85rem; color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .stop-meta { font-size: 0.78rem; color: var(--muted); margin-top: 1px; overflow-wrap: anywhere; }
-    .pill { display:inline-block; font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: 4px; }
-    .pill.good { background: var(--good-soft); color: var(--good); }
-    .pill.bad { background: var(--bad-soft); color: var(--bad); }
-
-    .facts { border-top: 1px solid var(--line-soft); margin-top: 4px; padding-top: 8px; }
-    .fact { display:flex; justify-content: space-between; padding: 6px 0; font-size: 0.84rem; border-bottom: 1px solid var(--line-soft); gap: 10px; }
-    .fact:last-child { border-bottom: none; }
-    .fact span:first-child { color: var(--muted); }
-    .fact span:last-child { color: var(--ink); font-weight: 600; text-align: right; }
-
-    .section-title { font-size: 1.15rem; font-weight: 750; color: var(--ink); margin: 1.4rem 0 0.15rem; }
-    .section-sub { font-size: 0.88rem; color: var(--muted); margin-bottom: 0.8rem; }
-
-    div[data-testid="stExpander"] details { background: var(--surface); border-radius: 12px; }
-    .main iframe, section.stMain iframe { border-radius: 14px; border: 1px solid var(--line) !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+apply_theme()
 
 
 def html_kpi(icon: str, label: str, value: str, sub: str = "", tone: str = "", text: bool = False) -> str:
@@ -1266,34 +1117,26 @@ TRIP_PRESETS = {
 }
 
 
-def step_head(num: int, text: str) -> None:
-    st.markdown(f'<div class="step-head"><span class="step-num">{num}</span>{text}</div>', unsafe_allow_html=True)
-
-
 # ==============================================================================
-# SIDEBAR: start with one delivery; keep optional scenarios and batching separate
+# SIDEBAR: page switcher, then two numbered choices (order, route planner)
 # ==============================================================================
 with st.sidebar:
-    st.markdown(
-        '<div class="brand"><div class="brand-logo">🛵</div><div>'
-        '<div class="brand-name">Route Planner</div>'
-        '<div class="brand-sub">Start here · one delivery</div></div></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.caption("Start here: choose an order and a model. The route updates automatically.")
+    sidebar_header("app.py")
 
     # ---- Step 1: Order ----
     step_head(1, "Choose an order")
-    with st.expander("Advanced: create your own scenario"):
-        use_custom = st.toggle(
-            "Set traffic, weather and trip length myself",
-            value=False,
-            help="Off: use an example order. On: build a simulated trip.",
-        )
+    order_source = st.segmented_control(
+        "Where the order comes from",
+        options=["Real order", "Make my own"],
+        default="Real order",
+        label_visibility="collapsed",
+        help="Real order: a delivery from the Zomato dataset. Make my own: set traffic, weather and distance yourself.",
+    ) or "Real order"
+    use_custom = order_source == "Make my own"
 
     if not use_custom:
-        with st.expander("Find another example order"):
+        order_box = st.container()  # the order list is drawn here, above its filters
+        with st.expander("Filter by city or traffic"):
             city_list = sorted(catalog_df["city"].unique().tolist())
             selected_city = st.selectbox("City", options=["All cities"] + city_list, index=0)
             selected_traffic = st.segmented_control(
@@ -1318,8 +1161,8 @@ with st.sidebar:
             row["seed"]: f"#{row['order_id']} · {row['city']} · {row['distance_km']} km"
             for _, row in filtered_cat.iterrows()
         }
-        selected_seed = st.selectbox(
-            f"Example order ({len(order_options)} available)",
+        selected_seed = order_box.selectbox(
+            f"Order ({len(order_options)} available)",
             options=order_options,
             index=order_options.index(7) if 7 in order_options else 0,
             format_func=lambda s: order_labels[s],
@@ -1382,7 +1225,7 @@ with st.sidebar:
         format_func=model_label,
     )
     st.markdown(f'<div class="model-hint">{model_desc(primary_model)}</div>', unsafe_allow_html=True)
-    with st.expander("Optional: compare routes and change the map"):
+    with st.expander("More options: compare routes, map style"):
         show_baseline = st.toggle(
             "Show the direct route for comparison",
             value=False,
@@ -1403,32 +1246,10 @@ with st.sidebar:
         )
         show_hotspots = st.toggle("Show traffic jam zones", value=True)
 
-    with st.expander("Advanced: preview a batch of orders"):
-        st.caption(
-            "The chosen model plans one delivery. Extra stops use estimated travel times; "
-            "this is an illustration, not a multi-order AI prediction."
-        )
-        n_choice = st.segmented_control(
-            "Orders in the illustration",
-            options=[1, 2, 3],
-            default=1,
-            format_func=lambda n: f"{n} order" if n == 1 else f"{n} orders",
-        )
-        match_dataset = st.toggle(
-            "Use the example order's recorded batch size",
-            value=False,
-            help="Overrides the number chosen above.",
-        )
-        diff_restaurants = st.toggle(
-            "Pick up from different restaurants",
-            value=True,
-        )
-        include_pickup_leg = st.toggle(
-            "Show the rider's trip to the restaurant",
-            value=False,
-        )
-
-    st.caption("The “Multi Order D3QN” page above is a separate multi-customer experiment.")
+    # This page plans exactly one delivery. Several customers are handled by the
+    # trained multi-order model on the "Several deliveries" page instead.
+    n_choice, match_dataset, diff_restaurants, include_pickup_leg = 1, False, True, False
+    st.caption("Have more than one customer? Switch to **Several deliveries** at the top.")
 
     if not TORCH_AVAILABLE:
         st.caption("PyTorch is not installed, so only Q-Learning and the baseline models are available.")
@@ -1436,12 +1257,12 @@ with st.sidebar:
 # ==============================================================================
 # HEADER & TABS
 # ==============================================================================
-st.markdown(
-    '<div class="hero"><div class="eyebrow">Food delivery · Reinforcement learning</div>'
-    "<h1>Plan a delivery</h1>"
-    "<p>Choose an example order and a route planner in the sidebar. The result updates automatically. "
-    "Start with one delivery; optional comparisons and batch illustrations are below the main choices.</p></div>",
-    unsafe_allow_html=True,
+page_hero(
+    "One delivery · Reinforcement learning",
+    "Plan a delivery",
+    "See how an AI route planner takes a rider from the restaurant to the customer while avoiding traffic. "
+    "Everything updates as soon as you change a choice on the left.",
+    ["Choose an order", "Choose a route planner", "Read the map and results below"],
 )
 st.write("")
 
