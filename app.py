@@ -48,9 +48,6 @@ DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
 QL_RESULT_DIR = BASE_DIR / "q_learning" / "result"
 DQN_RESULT_DIR = BASE_DIR / "dqn" / "result"
 D3QN_RESULT_DIR = BASE_DIR / "d3qn" / "result"
-MASTER_RESULT_DIR = BASE_DIR / "result"
-ERR_RESULT_DIR = MASTER_RESULT_DIR / "error_analysis"
-EDA_DIR = BASE_DIR / "exploration" / "zomato_exploration"
 
 SLA_LIMIT_MIN = 45.0  # Maximum allowed minutes from order pickup to customer drop-off
 
@@ -95,7 +92,7 @@ ROUTE_STYLES = {
 }
 
 MODEL_INFO = {
-    "Dueling Double DQN (DDQN)": ("Dueling Double DQN", "Best all-rounder. Learns to steer around traffic hotspots."),
+    "Dueling Double DQN (DDQN)": ("Dueling Double DQN", "Uses a dueling network to learn route decisions around traffic hotspots."),
     "Deep Q-Network (DQN)": ("Deep Q-Network", "Learns which way to move using the destination and nearby traffic."),
     "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
     "Ensemble (QL + DQN + DDQN)": ("Ensemble (all models)", "Combines the votes of all three AI model families."),
@@ -255,7 +252,7 @@ def load_system_resources():
         except Exception:
             pass
 
-    m1, m2, m3, m_tuned = None, None, None, None
+    m1, m2, m3 = None, None, None
     ddqn_net = None
     if TORCH_AVAILABLE and torch is not None:
         p1 = DQN_RESULT_DIR / "dqn_model_v1.pt"
@@ -276,18 +273,6 @@ def load_system_resources():
             m3.load_state_dict(torch.load(p3, map_location="cpu", weights_only=True))
             m3.eval()
 
-        # Best model from the DQN Part B search (dqn/part_b_refine.py). It is a plain or Double DQN
-        # with the standard network, so it is listed as a DQN, not as the Dueling Double DQN.
-        p_tuned = DQN_RESULT_DIR / "dqn_model_tuned.pt"
-        if p_tuned.exists() and QNetV2 is not None:
-            try:
-                ckpt = torch.load(p_tuned, map_location="cpu", weights_only=False)
-                m_tuned = QNetV2(obs_dim=OBS_DIM_V3, hidden=ckpt.get("hidden", 128))
-                m_tuned.load_state_dict(ckpt["state_dict"])
-                m_tuned.eval()
-            except Exception:
-                m_tuned = None
-
         d3qn_ckpt = D3QN_RESULT_DIR / "d3qn_model_best.pt"
         if d3qn_ckpt.exists():
             try:
@@ -296,10 +281,9 @@ def load_system_resources():
             except Exception:
                 pass
 
-    # Present one DQN choice. Earlier checkpoints remain available for research.
-    if m_tuned is not None:
-        policies["Deep Q-Network (DQN)"] = dqn_policy_v3(m_tuned)
-    elif m3 is not None:
+    # Present one standard DQN choice. The historical tuned checkpoint uses
+    # Double DQN training and remains in the research results, not this picker.
+    if m3 is not None:
         policies["Deep Q-Network (DQN)"] = dqn_policy_v3(m3)
     elif m2 is not None:
         policies["Deep Q-Network (DQN)"] = dqn_policy_v2(m2)
@@ -1266,7 +1250,10 @@ page_hero(
 )
 st.write("")
 
-tab_map, tab_compare, tab_research = st.tabs(["🗺️  Plan a route", "📊  Compare models", "🔬  Research details"])
+tab_map, tab_compare = st.tabs([
+    "🗺️  1 · Try one delivery",
+    "📊  2 · Compare all planners",
+])
 
 # ------------------------------------------------------------------------------
 # TAB 1: PLAN A ROUTE
@@ -1549,13 +1536,68 @@ with tab_map:
 # ------------------------------------------------------------------------------
 with tab_compare:
     section(
-        "How well does each model do?",
-        "Every model routes the same set of real test orders it has never seen before. "
-        "Higher on-time rate and lower trip time are better.",
+        "Compare route planners fairly",
+        "First compare them on your selected delivery. Then see how often they succeed across many deliveries.",
+    )
+    st.info(
+        "All planners get the same restaurant, customer, traffic, weather and jam locations "
+        "within each comparison. Their chosen moves may differ. The map is a visual illustration; "
+        "times come from the shared 10×10 delivery simulator, not from live road traffic."
+    )
+
+    section(
+        "1 · What happens on the delivery you chose?",
+        "Change the order or custom scenario in the sidebar to see how every available planner responds.",
+    )
+    single_sims = {
+        name: sims.get(name) or simulate_single_episode(policy, test_orders, int(selected_seed), custom_cfg)
+        for name, policy in all_policies.items()
+    }
+    single_rows = []
+    for name, sim in single_sims.items():
+        result = "Not delivered"
+        if sim["delivered"]:
+            result = "On time" if sim["sla_compliant"] else "Late"
+        single_rows.append({
+            "Planner": model_label(name),
+            "Result": result,
+            "Simulated time (min)": sim["minutes"],
+            "Moves": sim["steps"],
+            "Jam cells entered": sim["hotspot_hits"],
+            "Selected": "✓" if name == primary_model else "",
+        })
+    single_df = pd.DataFrame(single_rows)
+    st.dataframe(single_df, use_container_width=True, hide_index=True)
+    delivered_here = single_df[single_df["Result"] != "Not delivered"]
+    if not delivered_here.empty:
+        quickest_here = delivered_here.sort_values("Simulated time (min)").iloc[0]
+        st.caption(
+            f"On this one simulated delivery, {quickest_here['Planner']} is the quickest planner "
+            f"that reaches the customer ({quickest_here['Simulated time (min)']:.1f} min). "
+            "One delivery alone cannot show which planner is best overall."
+        )
+    st.caption(
+        f"On time = delivered within {SLA_LIMIT_MIN:.0f} simulated minutes. "
+        "A planner that does not arrive before the move limit is marked 'Not delivered', "
+        "even though the simulator has counted its travel time."
+    )
+    if st.toggle("Show every planner's route on the same grid", value=False):
+        st.caption("R = restaurant, C = customer, red cells = traffic jams. Each diagram uses the same scenario.")
+        route_cols = st.columns(3)
+        for idx, (name, sim) in enumerate(single_sims.items()):
+            with route_cols[idx % 3]:
+                fig = draw_grid_diagnostic(sim, model_label(name))
+                st.pyplot(fig)
+                plt.close(fig)
+
+    section(
+        "2 · Do the results hold across many deliveries?",
+        "The test below uses the same seeded scenarios for every planner, sampled from the held-out order split. "
+        "It does not use the custom scenario selected above.",
     )
 
     n_val_eps = st.segmented_control(
-        "Test orders",
+        "Number of test deliveries",
         options=[100, 250, 500],
         default=100,
         format_func=lambda n: f"{n} orders",
@@ -1598,131 +1640,18 @@ with tab_compare:
     with st.expander("See the full results table"):
         st.dataframe(val_df.assign(Algorithm=val_df["Algorithm"].map(model_label)), use_container_width=True, hide_index=True)
 
-    section("Offline benchmark & training", "Results saved by the training scripts (500 test orders).")
-    master_csv = MASTER_RESULT_DIR / "master_all_models_results.csv"
-    fallback_csv = DQN_RESULT_DIR / "results.csv"
-    csv_to_show = master_csv if master_csv.exists() else fallback_csv
-    master_img = MASTER_RESULT_DIR / "master_comparison_chart.png"
-    curves = [
-        (QL_RESULT_DIR / "ql_learning_curves.png", "Q-Learning"),
-        (DQN_RESULT_DIR / "dqn_learning_curve_v1.png", "Deep Q-Network v1"),
-        (DQN_RESULT_DIR / "dqn_learning_curve_v2.png", "Deep Q-Network v2"),
-        (DQN_RESULT_DIR / "dqn_learning_curve_v3.png", "Deep Q-Network v3"),
-        (D3QN_RESULT_DIR / "d3qn_learning_curves.png", "Double DQN vs. Dueling DDQN"),
-    ]
-    curves = [(p, c) for p, c in curves if p.exists()]
-
-    if not csv_to_show.exists() and not master_img.exists() and not curves:
-        st.info("No saved results yet. Run `python evaluate.py` and the training scripts to generate them.")
-
-    if master_img.exists() or csv_to_show.exists():
-        with st.expander("Benchmark chart and table", expanded=master_img.exists()):
-            if master_img.exists():
-                st.image(str(master_img), use_container_width=True)
-            if csv_to_show.exists():
-                df_m = pd.read_csv(csv_to_show)
-                fmt = {
-                    "success_rate": "{:.1%}", "avg_reward": "{:.2f}", "avg_steps": "{:.2f}",
-                    "avg_delivery_time_min": "{:.2f}", "on_time_rate": "{:.1%}", "std_reward": "{:.2f}",
-                    "route_efficiency": "{:.1%}", "avg_hotspot_steps": "{:.2f}",
-                }
-                fmt = {k: v for k, v in fmt.items() if k in df_m.columns}
-                st.dataframe(df_m.style.format(fmt), use_container_width=True, hide_index=True)
-
-    if curves:
-        with st.expander("Training curves"):
-            cols = st.columns(min(3, len(curves)))
-            for idx, (p, cap) in enumerate(curves):
-                cols[idx % len(cols)].image(str(p), caption=cap, use_container_width=True)
-
-# ------------------------------------------------------------------------------
-# TAB 3: RESEARCH DETAILS
-# ------------------------------------------------------------------------------
-with tab_research:
-    section(
-        "Research details",
-        "Tuning, robustness tests and data analysis behind the models. Open any section to explore.",
+    st.caption(
+        "Read delivery rate together with trip time: a short unfinished route is not a successful delivery. "
+        "These are simulated times, not predictions of actual road travel."
     )
 
-    any_shown = False
-
-    tuning_files = [
-        (DQN_RESULT_DIR / "part_b_analysis.png", None),
-        (DQN_RESULT_DIR / "part_b_tuning_results.csv", "DQN settings (validation results per configuration)"),
-        (DQN_RESULT_DIR / "part_b_ensemble_results.csv", "DQN versions compared (500 test orders)"),
-        (QL_RESULT_DIR / "ql_part_b_tuning.csv", "Q-Learning settings"),
-        (D3QN_RESULT_DIR / "d3qn_part_b_tuning.csv", "Dueling DDQN settings"),
-    ]
-    if any(p.exists() for p, _ in tuning_files):
-        any_shown = True
-        with st.expander("⚙️  Hyperparameter tuning & regularization", expanded=True):
-            if tuning_files[0][0].exists():
-                st.image(str(tuning_files[0][0]), use_container_width=True)
-            for p, title in tuning_files[1:]:
-                if p.exists():
-                    st.markdown(f"**{title}**")
-                    st.dataframe(pd.read_csv(p), use_container_width=True, hide_index=True)
-
-    md_csv = MASTER_RESULT_DIR / "missing_data_comparison.csv"
-    md_png = MASTER_RESULT_DIR / "missing_data_comparison.png"
-    if md_csv.exists():
-        any_shown = True
-        with st.expander("🧩  Handling missing data"):
-            st.caption("Comparison of strategies for filling in missing values in the dataset.")
-            m_c1, m_c2 = st.columns([1.3, 1])
-            m_c1.dataframe(pd.read_csv(md_csv), use_container_width=True, hide_index=True)
-            if md_png.exists():
-                m_c2.image(str(md_png), use_container_width=True)
-
-    rob_csv = DQN_RESULT_DIR / "part_b_robustness_results.csv"
-    if rob_csv.exists():
-        any_shown = True
-        with st.expander("🌪️  Stress tests (extreme traffic & weather)"):
-            rob = pd.read_csv(rob_csv)
-            if {"agent", "scenario", "on_time_rate", "avg_delivery_time_min"} <= set(rob.columns):
-                rob["agent"] = rob["agent"].replace({"Tuned DDQN": "DQN (tuned)"})
-                rob["scenario"] = rob["scenario"].str.replace(r"^\d+\.\s*", "", regex=True)
-                st.caption("How each model copes when conditions get worse. Higher on-time rate and lower minutes are better.")
-                s1, s2 = st.columns(2)
-                s1.markdown("**On-time rate (%)**")
-                s1.dataframe(
-                    (rob.pivot(index="agent", columns="scenario", values="on_time_rate") * 100).round(1),
-                    use_container_width=True,
-                )
-                s2.markdown("**Average delivery time (min)**")
-                s2.dataframe(
-                    rob.pivot(index="agent", columns="scenario", values="avg_delivery_time_min").round(1),
-                    use_container_width=True,
-                )
-                with st.popover("Full stress-test table"):
-                    st.dataframe(rob, use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(rob, use_container_width=True, hide_index=True)
-
-    err_png = ERR_RESULT_DIR / "error_analysis.png"
-    hot_csv = ERR_RESULT_DIR / "hotspot_analysis.csv"
-    if err_png.exists() or hot_csv.exists():
-        any_shown = True
-        with st.expander("🔍  Where the models go wrong"):
-            if err_png.exists():
-                st.image(str(err_png), use_container_width=True)
-            if hot_csv.exists():
-                st.markdown("**Average steps spent in traffic jams, by traffic level**")
-                st.dataframe(pd.read_csv(hot_csv), use_container_width=True, hide_index=True)
-
-    clean_log = BASE_DIR / "data" / "cleaning_log.csv"
-    png_files = sorted(EDA_DIR.glob("*.png")) if EDA_DIR.exists() else []
-    if clean_log.exists() or png_files:
-        any_shown = True
-        with st.expander("📦  The dataset (cleaning & exploration)"):
-            if clean_log.exists():
-                st.markdown("**Cleaning steps**")
-                st.dataframe(pd.read_csv(clean_log), use_container_width=True, hide_index=True)
-            if png_files:
-                st.markdown("**Exploration charts**")
-                cols = st.columns(3)
-                for idx, p in enumerate(png_files):
-                    cols[idx % 3].image(str(p), caption=p.stem.replace("_", " "), use_container_width=True)
-
-    if not any_shown:
-        st.info("No research outputs found yet. Run the training and analysis scripts to generate them.")
+    with st.expander("What do these results mean?"):
+        st.markdown(
+            "- **Delivered:** percentage of routes that reached the customer before the move limit.\n"
+            "- **On time:** percentage of all routes that arrived within the 45-minute simulated target.\n"
+            "- **Average trip time:** simulated minutes across all attempts, including attempts that did not finish. "
+            "Check delivery rate before treating a low time as a good result.\n"
+            "- **Direct route:** a simple baseline that heads toward the customer. "
+            "**Shortest-path planner:** a search method that can see the current jam map. "
+            "**Q-Learning, DQN and Dueling Double DQN:** learned policies."
+        )

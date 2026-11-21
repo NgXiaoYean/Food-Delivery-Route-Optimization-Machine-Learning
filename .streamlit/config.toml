@@ -14,6 +14,6 @@ backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F3F4F6"
 
 [client]
-# The automatic page list shows raw file names ("app", "Multi Order D3QN").
-# ui_shared.sidebar_header() draws a clearer switcher on both pages instead.
+# The automatic page list shows raw file names.
+# ui_shared.sidebar_header() draws a clearer switcher on all three pages instead.
 showSidebarNavigation = false

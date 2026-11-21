@@ -19,6 +19,8 @@ import pandas as pd
 import streamlit as st
 
 from ui_shared import apply_theme, page_hero, sidebar_header, step_head
+from env_multi import MultiDeliveryEnv
+from pages.multi_trip_setup import prepare_trip
 
 RESULT_DIR = BASE_DIR / "d3qn" / "result_multi"
 TRAFFIC = {0: "Low", 1: "Medium", 2: "High", 3: "Jam"}
@@ -71,9 +73,9 @@ def load_everything():
     return envs, policies, len(nets)
 
 
-def rollout(env, policy, seed):
+def rollout(env, policy, seed, setup):
     """Drive one trip and record the path and the delivery events."""
-    env.reset(seed=seed)
+    prepare_trip(env, seed, setup)
     start, n0 = env.pos, len(env.dests)
     trail, events, new_order_step, total, hot = [env.pos], [], None, 0.0, 0
     done, info = False, {}
@@ -129,6 +131,17 @@ try:
 except Exception as exc:  # missing data or models: tell the user exactly what to run
     envs, policies, n_models, load_error = {}, {}, 0, exc
 
+if load_error is None:
+    test_orders = envs["Normal trip"].orders
+    order_labels = [
+        (f"Test order #{i + 1} · {row.distance_km:.1f} km · "
+         f"{TRAFFIC[int(row.traffic)]} traffic · {row.time_taken:.0f} historical min")
+        for i, row in enumerate(test_orders.itertuples(index=False))
+    ]
+
+    def order_label(index):
+        return order_labels[index]
+
 with st.sidebar:
     sidebar_header("pages/2_Multi_Order_D3QN.py")
     if load_error is None:
@@ -136,10 +149,78 @@ with st.sidebar:
         scen_name = st.radio("Situation", list(SCENARIOS), label_visibility="collapsed",
                              captions=list(SCENARIOS.values()))
 
-        step_head(2, "Choose a trip")
-        seed = st.number_input("Trip number (0-499)", 0, 499, 7, step=1,
-                               help="Each number is one fixed test trip the AI never trained on. "
-                                    "Every method drives exactly the same trip, so the comparison is fair.")
+        step_head(2, "Choose orders")
+        source = st.segmented_control(
+            "Where the orders come from", ["Dataset orders", "Make my own"],
+            default="Dataset orders", label_visibility="collapsed",
+            help="Pick held-out dataset rows, or set the traffic and customer locations yourself.",
+        ) or "Dataset orders"
+        is_dynamic = scen_name == "A new order arrives mid-trip"
+        customer_options = [1, 2] if is_dynamic else [1, 2, 3]
+
+        if source == "Dataset orders":
+            example_trip = st.toggle("Use a ready-made example trip", value=False,
+                                     help="Reproduce one of the original numbered test trips.")
+            if example_trip:
+                seed = st.number_input("Example trip number (0–499)", 0, 499, 7, step=1,
+                                       help="Every planner sees the same generated test trip.")
+                setup = {"mode": "example"}
+            else:
+                n_customers = st.segmented_control("Customers at start", customer_options,
+                                                   default=2, key=f"dataset_count_{is_dynamic}")
+                available = list(range(len(test_orders)))
+                selected = []
+                for i in range(n_customers):
+                    choice = st.selectbox(f"Customer {i + 1} · dataset order", available,
+                                          index=min(7 + i, len(available) - 1),
+                                          format_func=order_label)
+                    selected.append(choice)
+                    available.remove(choice)
+                setup = {"mode": "dataset", "order_indices": selected}
+                if is_dynamic:
+                    setup["late_index"] = st.selectbox("Order arriving mid-trip", available,
+                                                         index=min(9, len(available) - 1),
+                                                         format_func=order_label)
+                with st.expander("Change the map layout"):
+                    seed = st.number_input("Layout number (0–499)", 0, 499, 7, step=1,
+                                           help="Controls the starting cell and the placement of customers.")
+                st.caption("These are separate test-set orders combined into a simulated trip, "
+                           "not a recorded group delivery. Their distances become grid destinations; "
+                           "historical times act as delivery targets. The first order sets traffic and weather.")
+        else:
+            n_customers = st.segmented_control("Customers at start", customer_options,
+                                               default=2, key=f"custom_count_{is_dynamic}")
+            traffic = st.segmented_control("Traffic", list(TRAFFIC), default=1,
+                                           format_func=lambda x: TRAFFIC[x])
+            weather = st.segmented_control("Weather", list(WEATHER), default=0,
+                                           format_func=lambda x: WEATHER[x])
+            jam_pct = st.slider("Traffic-jam blocks", 0, 50, 15, 5, format="%d%%")
+            defaults = [(2, 6), (7, 3), (8, 8)]
+            with st.expander("Set rider and customer locations", expanded=True):
+                st.caption("Choose cells on the 10×10 grid. Row 0 is the top; column 0 is the left.")
+                col1, col2 = st.columns(2)
+                start = (col1.number_input("Rider row", 0, 9, 4),
+                         col2.number_input("Rider column", 0, 9, 4))
+                destinations = []
+                for i in range(n_customers):
+                    col1, col2 = st.columns(2)
+                    destinations.append((col1.number_input(f"Customer {i + 1} row", 0, 9, defaults[i][0]),
+                                         col2.number_input(f"Customer {i + 1} column", 0, 9, defaults[i][1])))
+            deadlines = [st.number_input(f"Customer {i + 1} target (min)", 5, 180, 40, step=5)
+                         for i in range(n_customers)]
+            st.caption("Each customer's target is measured from the start of the trip.")
+            setup = {"mode": "custom", "start": start, "destinations": destinations,
+                     "deadlines": deadlines, "traffic": traffic, "weather": weather,
+                     "hotspot_frac": jam_pct / 100}
+            seed = 7
+            if is_dynamic:
+                setup["arrival_step"] = st.number_input("New order arrives after step", 3, 8, 5)
+                setup["late_distance_km"] = st.number_input("New order distance (km)", 1.0, 30.0, 6.0,
+                                                              step=1.0)
+                setup["late_target_min"] = st.number_input("New order target after arrival (min)", 5, 180, 40,
+                                                             step=5)
+                st.caption("The new customer's grid cell is generated at roughly this distance "
+                           "from the rider when the order arrives.")
 
         step_head(3, "Choose who plans the route")
         chosen = st.multiselect("Route planners", list(policies), default=list(policies),
@@ -152,7 +233,7 @@ page_hero(
     "Plan several deliveries",
     "One rider carries 1 to 3 orders. The planner must decide which customer to visit first "
     "and which streets to take, while traffic jams slow some blocks down.",
-    ["Choose a situation", "Choose a trip", "Compare the routes on the map"],
+    ["Choose a situation", "Choose orders or make a trip", "Compare routes on the map"],
 )
 st.write("")
 
@@ -174,10 +255,22 @@ tab_trip, tab_results = st.tabs(["🗺️  Plan a trip", "📊  Overall results"
 
 with tab_trip:
     env = envs[scen_name]
-    runs = {name: rollout(env, policies[name], int(seed)) for name in chosen}
+    if setup["mode"] == "custom":
+        env = MultiDeliveryEnv(env.orders, max_km=env.max_km, dynamic=is_dynamic,
+                               map_seed=123 if scen_name == "Unfamiliar traffic map" else 0,
+                               hotspot_frac=setup["hotspot_frac"])
+    try:
+        runs = {name: rollout(env, policies[name], int(seed), setup) for name in chosen}
+    except ValueError as exc:
+        st.error(str(exc))
+        runs = {}
     if not runs:
-        st.info("Choose at least one route planner on the left (step 3).")
+        if not chosen:
+            st.info("Choose at least one route planner on the left (step 3).")
     else:
+        if setup["mode"] == "custom":
+            st.caption("Your scenario is simulated on the same grid for every planner. "
+                       "The results below are for this trip only.")
         ref = next(iter(runs.values()))
         chips = [f"📦 {len(ref['dests'])} customer{'s' if len(ref['dests']) != 1 else ''}",
                  f"{TRAFFIC_ICONS[ref['traffic']]} {TRAFFIC[ref['traffic']]} traffic",
@@ -222,7 +315,8 @@ with tab_trip:
 
 with tab_results:
     st.markdown('<div class="section-title">How the planners do over many test trips</div>'
-                '<div class="section-sub">Averages over unseen test trips, from the D3QN team\'s experiments.</div>',
+                '<div class="section-sub">Saved averages over generated test trips from the D3QN team’s '
+                'experiments. These results do not change when you choose orders or make a scenario above.</div>',
                 unsafe_allow_html=True)
     summary = RESULT_DIR / "2000trips_ensemble_summary.csv"
     if summary.exists():

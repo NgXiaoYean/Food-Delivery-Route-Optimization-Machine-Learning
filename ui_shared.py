@@ -1,7 +1,7 @@
-"""Look and navigation shared by both dashboard pages (app.py and pages/).
+"""Look and navigation shared by the three dashboard pages.
 
-Streamlit's automatic page list shows raw file names ("app", "Multi Order D3QN"),
-so it is hidden in .streamlit/config.toml and replaced by sidebar_header().
+Streamlit's automatic page list shows raw file names, so it is hidden in
+.streamlit/config.toml and replaced by sidebar_header().
 """
 import streamlit as st
 
@@ -10,6 +10,8 @@ PAGES = [
     ("app.py", "One delivery", "🛵", "One rider takes one order to one customer."),
     ("pages/2_Multi_Order_D3QN.py", "Several deliveries", "📦",
      "One rider carries up to 3 orders and must choose who to visit first."),
+    ("pages/3_Data_and_Experiments.py", "Data & experiments", "🔬",
+     "How the shared data was prepared and the models were tested."),
 ]
 
 THEME_CSS = """
@@ -197,14 +199,14 @@ def apply_theme() -> None:
 
 
 def sidebar_header(current: str) -> None:
-    """Brand, then a clear switch between the two pages. Call inside `with st.sidebar:`."""
+    """Brand, then a clear switch between pages. Call inside `with st.sidebar:`."""
     st.markdown(
         '<div class="brand"><div class="brand-logo">🛵</div><div>'
         '<div class="brand-name">Delivery Route Planner</div>'
         '<div class="brand-sub">AI route planning demo</div></div></div>',
         unsafe_allow_html=True,
     )
-    st.markdown('<div class="nav-label">What do you want to plan?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="nav-label">Explore the project</div>', unsafe_allow_html=True)
     for path, label, icon, desc in PAGES:
         if path == current:  # the open page is highlighted, not a link
             st.markdown(
