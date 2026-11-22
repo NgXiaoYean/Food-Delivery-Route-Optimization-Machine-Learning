@@ -1,5 +1,6 @@
 """Saved project evidence, separate from the one- and several-delivery demos."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from ui_shared import apply_theme, page_hero, sidebar_header
 RESULT_DIR = BASE_DIR / "result"
 QL_RESULT_DIR = BASE_DIR / "q_learning" / "result"
 DQN_RESULT_DIR = BASE_DIR / "dqn" / "result"
+FIVE_MODEL_SUMMARY_PATH = BASE_DIR / "dqn" / "five_model_summary.json"
 D3QN_RESULT_DIR = BASE_DIR / "d3qn" / "result"
 MULTI_RESULT_DIR = BASE_DIR / "d3qn" / "result_multi"
 EXPLORATION_DIR = BASE_DIR / "exploration" / "zomato_exploration"
@@ -72,6 +74,59 @@ st.caption(
     "These results explain model settings and difficult cases for one customer. "
     "They were produced by saved experiments, not by the delivery currently selected in the app."
 )
+
+with st.expander("🏁 How do the five learned models compare on the same deliveries?", expanded=True):
+    st.caption(
+        "Q-Learning is the tabular reference. DQN, Double DQN, Dueling DQN and D3QN "
+        "form the four-way neural-network comparison. This experiment uses the same training "
+        "step budget and held-out delivery scenarios in the 10×10 grid simulator for all five. "
+        "Q-Learning keeps its team's "
+        "refined state and cycle-avoidance policy; the four DQN models share one neural setup "
+        "so the Double and Dueling changes can be compared directly."
+    )
+    if FIVE_MODEL_SUMMARY_PATH.exists():
+        summary = json.loads(FIVE_MODEL_SUMMARY_PATH.read_text(encoding="utf-8"))
+        results = pd.DataFrame(summary["comparison"])
+        expected_models = {"Q-Learning", "DQN", "Double DQN", "Dueling DQN", "D3QN"}
+        if expected_models <= set(results["model"]):
+            comparison = (results.set_index("model")
+                          .rename(columns={"delivered_pct": "Delivered (%)", "on_time_pct": "On time (%)",
+                                           "completed_trip_min": "Completed trip (min)"})
+                          .reindex(["Q-Learning", "DQN", "Double DQN", "Dueling DQN", "D3QN"]))
+            chart_col, table_col = st.columns([1.15, 1])
+            with chart_col:
+                st.bar_chart(comparison[["Delivered (%)", "On time (%)"]], height=290)
+            with table_col:
+                st.dataframe(comparison.round(1), width="stretch")
+            neural = comparison.loc[["DQN", "Double DQN", "Dueling DQN", "D3QN"]]
+            st.info(
+                f"The four DQN variants delivered {neural['Delivered (%)'].min():.1f}–"
+                f"{neural['Delivered (%)'].max():.1f}% of test trips. Their on-time rates were "
+                f"{neural['On time (%)'].min():.1f}–{neural['On time (%)'].max():.1f}%. "
+                "These small gaps do not establish that one DQN architecture is consistently better."
+            )
+            with st.expander("See results for each training seed"):
+                per_seed = pd.DataFrame(summary["per_seed"])
+                per_seed["delivered"] = (per_seed["delivered"] * 100).round(1)
+                per_seed["on_time"] = (per_seed["on_time"] * 100).round(1)
+                st.dataframe(
+                    per_seed[["model", "training_seed", "delivered", "on_time", "reward", "steps"]]
+                    .rename(columns={"model": "Model", "training_seed": "Seed",
+                                     "delivered": "Delivered (%)", "on_time": "On time (%)",
+                                     "reward": "Mean reward", "steps": "Mean moves"}).round(1),
+                    width="stretch", hide_index=True,
+                )
+            st.caption(
+                f"{len(summary['seeds'])} training seeds · {summary['train_steps']:,} "
+                f"training steps per model and seed · {summary['eval_episodes']} test trips per seed. "
+                "On time means delivered within the order's recorded delivery duration. "
+                "Trip minutes are averaged only over completed deliveries. "
+                "The historical test split has been inspected before, so treat this as comparative evidence."
+            )
+        else:
+            st.info("A completed run was found, but it does not contain results for all five models.")
+    else:
+        st.info("The five-model experiment has not completed yet. Its results will appear here after the run finishes.")
 
 master_csv = RESULT_DIR / "master_all_models_results.csv"
 fallback_csv = DQN_RESULT_DIR / "results.csv"

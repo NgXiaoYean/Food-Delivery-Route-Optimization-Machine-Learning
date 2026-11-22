@@ -85,17 +85,19 @@ ROUTE_STYLES = {
     "Direct Route (Baseline)": {"color": "#64748B", "weight": 3, "dash": "6, 6"},
     "Random Baseline": {"color": "#94A3B8", "weight": 2, "dash": "4, 6"},
     "Shortest-Time Planner (Dijkstra)": {"color": "#475569", "weight": 3, "dash": "4, 4"},
-    "Dueling Double DQN (DDQN)": {"color": "#2563EB", "weight": 4, "dash": None},
+    "Double DQN (DDQN)": {"color": "#0E7490", "weight": 4, "dash": "7, 3"},
+    "Dueling Double DQN (D3QN)": {"color": "#2563EB", "weight": 4, "dash": None},
     "Deep Q-Network (DQN)": {"color": "#0891B2", "weight": 4, "dash": None},
     "Tabular Q-Learning": {"color": "#4F46E5", "weight": 4, "dash": None},
-    "Ensemble (QL + DQN + DDQN)": {"color": "#0F766E", "weight": 4, "dash": None},
+    "Ensemble (QL + DQN + D3QN)": {"color": "#0F766E", "weight": 4, "dash": None},
 }
 
 MODEL_INFO = {
-    "Dueling Double DQN (DDQN)": ("Dueling Double DQN", "Uses a dueling network to learn route decisions around traffic hotspots."),
+    "Double DQN (DDQN)": ("Double DQN (DDQN)", "A tuned DQN variant that uses separate networks to select and evaluate actions."),
+    "Dueling Double DQN (D3QN)": ("Dueling Double DQN (D3QN)", "Adds a dueling network to Double DQN for route decisions around traffic hotspots."),
     "Deep Q-Network (DQN)": ("Deep Q-Network", "Learns which way to move using the destination and nearby traffic."),
     "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
-    "Ensemble (QL + DQN + DDQN)": ("Ensemble (all models)", "Combines the votes of all three AI model families."),
+    "Ensemble (QL + DQN + D3QN)": ("Ensemble (all models)", "Combines the votes of Q-Learning, DQN and Dueling Double DQN."),
     "Direct Route (Baseline)": ("Direct route", "Heads straight for the customer and ignores traffic."),
     "Shortest-Time Planner (Dijkstra)": ("Shortest-path planner", "Classic map search that sees all traffic in advance."),
     "Random Baseline": ("Random moves", "Moves randomly. Used as a sanity check."),
@@ -252,8 +254,8 @@ def load_system_resources():
         except Exception:
             pass
 
-    m1, m2, m3 = None, None, None
-    ddqn_net = None
+    m1, m2, m3, tuned_ddqn = None, None, None, None
+    d3qn_net = None
     if TORCH_AVAILABLE and torch is not None:
         p1 = DQN_RESULT_DIR / "dqn_model_v1.pt"
         if p1.exists() and QNetV1 is not None:
@@ -273,34 +275,47 @@ def load_system_resources():
             m3.load_state_dict(torch.load(p3, map_location="cpu", weights_only=True))
             m3.eval()
 
+        tuned_path = DQN_RESULT_DIR / "dqn_model_tuned.pt"
+        if tuned_path.exists() and QNetV2 is not None:
+            try:
+                tuned_ckpt = torch.load(tuned_path, map_location="cpu", weights_only=True)
+                if tuned_ckpt.get("config", {}).get("double_dqn") is True:
+                    tuned_ddqn = QNetV2(obs_dim=OBS_DIM_V3, hidden=tuned_ckpt.get("hidden", 128))
+                    tuned_ddqn.load_state_dict(tuned_ckpt["state_dict"])
+                    tuned_ddqn.eval()
+            except (OSError, RuntimeError, KeyError, TypeError, ValueError):
+                tuned_ddqn = None
+
         d3qn_ckpt = D3QN_RESULT_DIR / "d3qn_model_best.pt"
         if d3qn_ckpt.exists():
             try:
                 from d3qn.d3qn_pipeline import load_best_d3qn, make_d3qn_policy
-                ddqn_net = load_best_d3qn(d3qn_ckpt)
+                d3qn_net = load_best_d3qn(d3qn_ckpt)
             except Exception:
                 pass
 
-    # Present one standard DQN choice. The historical tuned checkpoint uses
-    # Double DQN training and remains in the research results, not this picker.
+    # Standard DQN and its tuned Double DQN extension use the same state/policy
+    # at inference; the latter differs in how it was trained.
     if m3 is not None:
         policies["Deep Q-Network (DQN)"] = dqn_policy_v3(m3)
     elif m2 is not None:
         policies["Deep Q-Network (DQN)"] = dqn_policy_v2(m2)
     elif m1 is not None:
         policies["Deep Q-Network (DQN)"] = dqn_policy_v1(m1)
-    if ddqn_net is not None:
+    if tuned_ddqn is not None:
+        policies["Double DQN (DDQN)"] = dqn_policy_v3(tuned_ddqn)
+    if d3qn_net is not None:
         try:
             from d3qn.d3qn_pipeline import make_d3qn_policy
-            policies["Dueling Double DQN (DDQN)"] = make_d3qn_policy(ddqn_net)
+            policies["Dueling Double DQN (D3QN)"] = make_d3qn_policy(d3qn_net)
         except Exception:
-            policies["Dueling Double DQN (DDQN)"] = dqn_policy_v3(ddqn_net)
+            policies["Dueling Double DQN (D3QN)"] = dqn_policy_v3(d3qn_net)
     if ql_agent is not None:
         from q_learning.q_learning_pipeline import make_ql_policy
         policies["Tabular Q-Learning"] = make_ql_policy(ql_agent)
-    if m2 is not None and ddqn_net is not None:
-        policies["Ensemble (QL + DQN + DDQN)"] = make_cross_algorithm_ensemble(
-            ql_agent, m2, m3, ddqn_net
+    if ql_agent is not None and m2 is not None and m3 is not None and d3qn_net is not None:
+        policies["Ensemble (QL + DQN + D3QN)"] = make_cross_algorithm_ensemble(
+            ql_agent, m2, m3, d3qn_net
         )
 
     policies["Direct Route (Baseline)"] = greedy_policy
@@ -1209,6 +1224,11 @@ with st.sidebar:
         format_func=model_label,
     )
     st.markdown(f'<div class="model-hint">{model_desc(primary_model)}</div>', unsafe_allow_html=True)
+    if TORCH_AVAILABLE and "Dueling Double DQN (D3QN)" not in policy_names:
+        st.caption(
+            "Single-delivery D3QN is unavailable because its trained model is missing here. "
+            "The several-delivery D3QN uses a separate model on its own page."
+        )
     with st.expander("More options: compare routes, map style"):
         show_baseline = st.toggle(
             "Show the direct route for comparison",
@@ -1544,6 +1564,11 @@ with tab_compare:
         "within each comparison. Their chosen moves may differ. The map is a visual illustration; "
         "times come from the shared 10×10 delivery simulator, not from live road traffic."
     )
+    st.page_link(
+        "pages/3_Data_and_Experiments.py",
+        label="See the controlled five-model study (Q-Learning and four DQN variants)",
+        icon="🔬",
+    )
 
     section(
         "1 · What happens on the delivery you chose?",
@@ -1653,5 +1678,5 @@ with tab_compare:
             "Check delivery rate before treating a low time as a good result.\n"
             "- **Direct route:** a simple baseline that heads toward the customer. "
             "**Shortest-path planner:** a search method that can see the current jam map. "
-            "**Q-Learning, DQN and Dueling Double DQN:** learned policies."
+            "**Q-Learning, DQN, Double DQN and Dueling Double DQN:** learned policies."
         )

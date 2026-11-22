@@ -123,7 +123,7 @@ def draw(runs, n):
 
 
 # ==============================================================================
-# SIDEBAR: page switcher, then three numbered choices
+# SIDEBAR: page switcher, then the two choices needed to plan a trip
 # ==============================================================================
 try:
     envs, policies, n_models = load_everything()
@@ -145,16 +145,15 @@ if load_error is None:
 with st.sidebar:
     sidebar_header("pages/2_Multi_Order_D3QN.py")
     if load_error is None:
-        step_head(1, "Choose a situation")
-        scen_name = st.radio("Situation", list(SCENARIOS), label_visibility="collapsed",
-                             captions=list(SCENARIOS.values()))
-
-        step_head(2, "Choose orders")
+        step_head(1, "Choose orders")
         source = st.segmented_control(
             "Where the orders come from", ["Dataset orders", "Make my own"],
             default="Dataset orders", label_visibility="collapsed",
             help="Pick held-out dataset rows, or set the traffic and customer locations yourself.",
         ) or "Dataset orders"
+        with st.expander("More options: trip situation"):
+            scen_name = st.selectbox("Situation", list(SCENARIOS))
+            st.caption(SCENARIOS[scen_name])
         is_dynamic = scen_name == "A new order arrives mid-trip"
         customer_options = [1, 2] if is_dynamic else [1, 2, 3]
 
@@ -222,18 +221,22 @@ with st.sidebar:
                 st.caption("The new customer's grid cell is generated at roughly this distance "
                            "from the rider when the order arrives.")
 
-        step_head(3, "Choose who plans the route")
-        chosen = st.multiselect("Route planners", list(policies), default=list(policies),
-                                format_func=label, label_visibility="collapsed")
-        for name in chosen:
-            st.caption(f"**{label(name)}:** {METHODS.get(name, ('', '', ''))[2]}")
+        step_head(2, "Choose a route planner")
+        preferred = next((name for name in ("D3QN ensemble", "D3QN single model", "Greedy (nearest first)")
+                          if name in policies), next(iter(policies)))
+        primary = st.selectbox("Route planner", list(policies), index=list(policies).index(preferred),
+                               format_func=label)
+        st.caption(METHODS[primary][2])
+        with st.expander("More options: compare routes"):
+            compare_all = st.toggle("Compare all planners on this trip", value=False)
+        chosen = [primary] + ([name for name in policies if name != primary] if compare_all else [])
 
 page_hero(
     "Several deliveries · Reinforcement learning",
     "Plan several deliveries",
     "One rider carries 1 to 3 orders. The planner must decide which customer to visit first "
     "and which streets to take, while traffic jams slow some blocks down.",
-    ["Choose a situation", "Choose orders or make a trip", "Compare routes on the map"],
+    ["Choose orders", "Choose a route planner", "See the route and results"],
 )
 st.write("")
 
@@ -251,7 +254,7 @@ if n_models == 0:
         unsafe_allow_html=True,
     )
 
-tab_trip, tab_results = st.tabs(["🗺️  Plan a trip", "📊  Overall results"])
+tab_trip, tab_results = st.tabs(["🗺️  1 · Try a trip", "📊  2 · Results across trips"])
 
 with tab_trip:
     env = envs[scen_name]
@@ -271,7 +274,7 @@ with tab_trip:
         if setup["mode"] == "custom":
             st.caption("Your scenario is simulated on the same grid for every planner. "
                        "The results below are for this trip only.")
-        ref = next(iter(runs.values()))
+        ref = runs[primary]
         chips = [f"📦 {len(ref['dests'])} customer{'s' if len(ref['dests']) != 1 else ''}",
                  f"{TRAFFIC_ICONS[ref['traffic']]} {TRAFFIC[ref['traffic']]} traffic",
                  f"{WEATHER_ICONS[ref['weather']]} {WEATHER[ref['weather']]}"]
@@ -280,15 +283,27 @@ with tab_trip:
         st.markdown('<div class="chips">' + "".join(f'<span class="chip">{c}</span>' for c in chips) + "</div>",
                     unsafe_allow_html=True)
 
-        best = max(runs, key=lambda n: runs[n]["reward"])
-        st.success(f"On this trip, **{label(best)}** scores best "
-                   f"({runs[best]['reward']:.1f} points, {runs[best]['info'].get('late_total', 0.0):.0f} late minutes).")
+        delivered = ref["info"].get("n_delivered", len(ref["events"]))
+        total_orders = len(ref["dests"])
+        elapsed = ref["info"].get("elapsed_min", 0.0)
+        outcome = (f"**{label(primary)}** delivered {delivered}/{total_orders} orders "
+                   f"in {elapsed:.1f} simulated minutes.")
+        if delivered == total_orders:
+            st.success(outcome)
+        else:
+            st.warning(outcome + " The trip ended before every order was delivered.")
+        if compare_all:
+            best = max(runs, key=lambda name: runs[name]["reward"])
+            st.caption(f"On this trip, {label(best)} earned the highest score "
+                       f"({runs[best]['reward']:.1f} points).")
 
         col_map, col_table = st.columns([1, 1.15], gap="medium")
         with col_map:
-            st.pyplot(draw(runs, env.n))
+            fig = draw(runs, env.n)
+            st.pyplot(fig)
+            plt.close(fig)
             st.caption("Red blocks = traffic jams (slower). Blue stars = customers, orange star = order that "
-                       "arrived mid-trip. Each line is one planner's route.")
+                       "arrived mid-trip. Each line is one selected planner's route.")
         with col_table:
             rows = []
             for name, r in runs.items():
@@ -297,6 +312,7 @@ with tab_trip:
                 rows.append({"Planner": label(name),
                              "Score": round(r["reward"], 1),
                              "Delivered": f"{info.get('n_delivered', len(r['events']))}/{len(r['dests'])}",
+                             "Trip time (min)": round(info.get("elapsed_min", 0.0), 1),
                              "Visit order": order,
                              "Late (min)": round(info.get("late_total", 0.0), 1),
                              "Jam blocks": r["hot"],
@@ -307,6 +323,7 @@ with tab_trip:
                     "- **Score:** +50 per delivery, minus 0.5 per late minute and a small cost for every move, "
                     "jam block and bad weather; −20 if the trip runs out of time. Higher is better.\n"
                     "- **Visit order:** which customer was reached first, second, third.\n"
+                    "- **Trip time:** simulated minutes until the rider stops.\n"
                     "- **Late (min):** total minutes after each customer's expected delivery time.\n"
                     "- **Jam blocks:** how many congested blocks the rider drove through. Lower is better.\n"
                     "- The **perfect-knowledge planner** sees the whole traffic map, so it is a best-case "
