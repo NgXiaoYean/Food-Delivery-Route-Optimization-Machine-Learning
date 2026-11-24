@@ -27,7 +27,8 @@ def evaluate_policy(policy_fn, env, episodes: int = 500, name: str = "agent") ->
     Run `policy_fn(env)` on seeds 0..episodes-1 (identical test scenarios for every model)
     and compute comprehensive performance and domain-specific delivery metrics:
       - success_rate:          Fraction of orders successfully delivered before timeout
-      - on_time_rate:          SLA metric — fraction delivered within Zomato's real Time_taken
+      - on_time_rate:          Benchmark proxy — fraction delivered within the order's recorded
+                               Time_taken under the simulator's assumed 2 min/step clock
       - avg_reward:            Mean cumulative MDP reward across episodes
       - std_reward:            Reward standard deviation (measures strategy stability)
       - avg_steps:             Mean grid steps per episode

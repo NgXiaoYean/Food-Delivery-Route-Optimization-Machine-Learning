@@ -235,7 +235,8 @@ def main():
             raise FileNotFoundError(f"Missing cleaned dataset at {data_path}. Run `python clean_data.py` first.")
         orders = load_orders(data_path)
         train_orders, test_orders = split_orders(orders)
-        test_env = DeliveryEnv(test_orders)
+        train_max_km = float(train_orders["distance_km"].quantile(0.95))
+        test_env = DeliveryEnv(test_orders, max_km=train_max_km)
     except Exception as exc:
         print(f"[ERROR] Could not start D3QN pipeline: {exc}")
         sys.exit(1)

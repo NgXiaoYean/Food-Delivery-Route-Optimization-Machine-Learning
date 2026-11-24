@@ -57,14 +57,14 @@ def load_orders(csv_path):
  
  
 class DeliveryEnv(_Base):
-    def __init__(self, orders: pd.DataFrame, grid_size=10, max_steps=60, map_seed=0, hotspot_frac=0.15):
+    def __init__(self, orders: pd.DataFrame, grid_size=10, max_steps=60, map_seed=0, hotspot_frac=0.15, max_km=None):
         self.orders = orders
         self.n = grid_size
         self.max_steps = max_steps
         # Fixed congested cells (same for everyone because of map_seed)
         rng = np.random.default_rng(map_seed)
         self.hotspots = rng.random((self.n, self.n)) < hotspot_frac
-        self.max_km = float(orders["distance_km"].quantile(0.95))
+        self.max_km = float(orders["distance_km"].quantile(0.95)) if max_km is None else float(max_km)
         self.rng = np.random.default_rng()
         self.n_actions = 4
         if spaces is not None:
