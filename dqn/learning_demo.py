@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from dqn.dqn_v4 import QNetwork
+from dqn_dynamic.dqn_v4 import QNetwork
 
 
 MOVES = ((-1, 0), (1, 0), (0, -1), (0, 1))

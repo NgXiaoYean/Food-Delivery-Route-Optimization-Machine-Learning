@@ -1,0 +1,8 @@
+variant,runs,val_reward,sd,delivered_all,hotspot_steps,change_vs_tuned,clearly_different
+Euclidean instead of Manhattan distance,2,54.349,0.112,1.0,0.878,0.07,False
+No distance feature,2,54.317,0.028,1.0,0.838,0.038,False
+No hotspot flags,2,52.331,0.185,1.0,1.261,-1.947,True
+Tuned (reference),2,54.278,0.087,1.0,0.887,0.0,False
+gamma back to default (0.95),2,53.538,0.351,0.999,0.937,-0.74,True
+hidden back to default (128),2,53.621,0.375,0.999,0.955,-0.658,True
+tau back to default (0.005),2,54.236,0.173,1.0,0.844,-0.042,False

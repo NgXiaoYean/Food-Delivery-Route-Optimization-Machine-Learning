@@ -8,11 +8,11 @@ import pandas as pd
 import torch
 
 from shared import split_orders
-from dqn.dqn_v4 import Config, bellman_targets, load_checkpoint, policy, save_checkpoint, train
-from dqn.dynamic_env import Conditions, DynamicDeliveryEnv, features
-from dqn.evaluate_dqn import evaluate, greedy_policy, paired_interval, planner_policy, summarize
+from dqn_dynamic.dqn_v4 import Config, bellman_targets, load_checkpoint, policy, save_checkpoint, train
+from dqn_dynamic.dynamic_env import Conditions, DynamicDeliveryEnv, features
+from dqn_dynamic.evaluate_dqn import evaluate, greedy_policy, paired_interval, planner_policy, summarize
 from dqn.experiments import MAP_BANKS, split_orders_three_way, training_scale
-from dqn.hparam_search import (SEARCH_SPACE, grid_run_count, rung_budgets, sample_configs,
+from dqn_dynamic.hparam_search import (SEARCH_SPACE, grid_run_count, rung_budgets, sample_configs,
                                successive_halving)
 
 

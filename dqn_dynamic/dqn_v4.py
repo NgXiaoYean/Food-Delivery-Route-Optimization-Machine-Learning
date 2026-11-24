@@ -1,6 +1,6 @@
 """Standard DQN for the isolated dynamic delivery task (no Double/Dueling DQN).
 
-Run experiments with: python -B -m dqn.run_experiments --help
+Run experiments with: python -B -m dqn_dynamic.run_experiments --help
 """
 from dataclasses import asdict, dataclass
 import random
@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from dqn.dynamic_env import FEATURE_DIMS, features
+from dqn_dynamic.dynamic_env import FEATURE_DIMS, features
 
 
 @dataclass(frozen=True)

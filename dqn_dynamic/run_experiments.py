@@ -1,8 +1,8 @@
 """Reproducible Part A ablations and Part B validation-only model selection.
 
-python -B -m dqn.run_experiments --smoke
-python -B -m dqn.run_experiments --steps 60000 --seeds 11 22 33
-python -B -m dqn.run_experiments --search random --trials 12 --finalists 3
+python -B -m dqn_dynamic.run_experiments --smoke
+python -B -m dqn_dynamic.run_experiments --steps 60000 --seeds 11 22 33
+python -B -m dqn_dynamic.run_experiments --search random --trials 12 --finalists 3
 """
 import argparse
 from dataclasses import asdict, replace
@@ -16,11 +16,11 @@ import pandas as pd
 import torch
 
 from env import load_orders
-from dqn.dqn_v4 import Config, policy, save_checkpoint, train
-from dqn.hparam_search import (SEARCH_SPACE, grid_run_count, rung_budgets, sample_configs,
+from dqn_dynamic.dqn_v4 import Config, policy, save_checkpoint, train
+from dqn_dynamic.hparam_search import (SEARCH_SPACE, grid_run_count, rung_budgets, sample_configs,
                                successive_halving)
-from dqn.dynamic_env import DynamicDeliveryEnv, MOVES, features
-from dqn.evaluate_dqn import evaluate, greedy_policy, paired_interval, planner_policy, summarize
+from dqn_dynamic.dynamic_env import DynamicDeliveryEnv, MOVES, features
+from dqn_dynamic.evaluate_dqn import evaluate, greedy_policy, paired_interval, planner_policy, summarize
 from dqn.experiments import (MAP_BANKS, dataset_hash, split_manifest,
                              split_orders_three_way, training_scale, write_json)
 
@@ -65,7 +65,7 @@ def ensemble_policy(networks, backtracking_penalty=0.0):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=ROOT / "data/dataset_clean.csv")
-    parser.add_argument("--output", type=Path, help="New directory inside dqn/result/v4; refuses overwrite")
+    parser.add_argument("--output", type=Path, help="New directory inside dqn_dynamic/result; refuses overwrite")
     parser.add_argument("--steps", type=int, default=60_000, help="Same interaction budget for every run")
     parser.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
     parser.add_argument("--eval-episodes", type=int, default=200)
@@ -97,11 +97,11 @@ def main(argv=None):
         args.trials, args.finalists = min(args.trials, 4), 1
     torch.set_num_threads(args.threads)
     torch.use_deterministic_algorithms(True)
-    base_dir = ROOT / "dqn/result/v4"
+    base_dir = ROOT / "dqn_dynamic/result"
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output = (args.output or base_dir / run_id).resolve()
     if not output.is_relative_to(base_dir.resolve()) or output == base_dir.resolve():
-        raise ValueError("Output must be a new subdirectory of dqn/result/v4")
+        raise ValueError("Output must be a new subdirectory of dqn_dynamic/result")
     # Fail before creating output if input cannot be loaded.
     orders = load_orders(args.data)
     partitions = split_orders_three_way(orders)

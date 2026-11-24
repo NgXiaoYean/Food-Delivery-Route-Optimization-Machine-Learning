@@ -1,0 +1,3 @@
+setting,runs,km_per_cell,agent,sd,greedy,planner,delivered_all,gain_vs_greedy,gap_closed
+Original rules,3,1.11,54.271,0.063,50.806,55.666,1.0,3.465,0.713
+Calibrated clock,3,1.11,61.694,0.106,58.562,62.665,1.0,3.131,0.763

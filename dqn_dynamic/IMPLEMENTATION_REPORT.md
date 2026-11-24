@@ -21,17 +21,17 @@ See [README_V4.md](README_V4.md) for commands and simulator assumptions.
 - The end-to-end smoke experiment completed all training/evaluation stages.
 - A 5,000-step, three-seed validation-only pilot completed. It was insufficient
   to establish useful routing performance and is not evidence of superiority.
-- `python -B dqn/part_b_refine.py --help` confirmed that the original Part B
+- `python -B dqn_dynamic/part_b_refine.py --help` confirmed that the original Part B
   command now exposes the new runner.
 - A Windows console encoding issue found during the first smoke attempt was
   fixed by displaying the output path relative to the project.
 
 ## Repeated-seed benchmark
 
-Run directory: `dqn/result/v4/20261115T033512521330Z/`.
+Run directory: `dqn_dynamic/result/20261115T033512521330Z/`.
 
 ```powershell
-python -B -m dqn.run_experiments --steps 60000 --seeds 11 22 33 --eval-episodes 200
+python -B -m dqn_dynamic.run_experiments --steps 60000 --seeds 11 22 33 --eval-episodes 200
 ```
 
 All training runs receive 60,000 environment steps and 14,751 optimizer
@@ -141,6 +141,6 @@ were inspected in older experiments. It is excluded from new tuning but is
 not a previously untouched dataset. Test maps/events are held out from the
 new training/validation banks. Three-seed bootstrap intervals are exploratory.
 
-Generated checkpoints and detailed tables remain local under `dqn/result/v4/`
+Generated checkpoints and detailed tables remain local under `dqn_dynamic/result/`
 and are ignored by its DQN-owned `.gitignore`. The source and this report can
 be reviewed separately from those large artifacts.

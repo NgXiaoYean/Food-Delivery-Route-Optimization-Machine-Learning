@@ -1,0 +1,4 @@
+strategy,rows_retained,retention_pct,mean_time_min,traffic_time_corr,explained_R2,benchmark_MAE_min
+1. Remove Incomplete Rows,39254,93.59,26.39,0.4167,0.4608,5.424
+2. Global Median/Mode Fill,41944,100.0,26.311,0.4118,0.445,5.507
+3. Rush-Hour Pattern Fill,41944,100.0,26.311,0.4106,0.4407,5.519
