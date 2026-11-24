@@ -31,8 +31,11 @@ An end-to-end Reinforcement Learning system optimizing urban food delivery route
 │   ├── dqn_v1.py                      # Iteration 1: Raw 8D coordinates
 │   ├── dqn_v2.py                      # Iteration 2: +Relative displacement & reward scaling
 │   ├── dqn_v3.py                      # Iteration 3: +4 neighboring hotspot sensors
-│   ├── part_b_refine.py               # Hyperparameter search, ensembling & 4-scenario stress test
 │   └── result/                        # Saved weights (.pt), curves (.png) & Part B CSVs
+├── compare/                           # Part A: ONE controlled comparison of Q-Learning, DQN, Double DQN, Dueling DQN, D3QN
+│   └── part_a_comparison.py           # run: python -m compare.part_a_comparison  (summary: part_a_summary.json)
+├── dqn_dynamic/                       # Extension: dynamic-traffic standard DQN (v4), own README and 24 tests
+├── docs/PROTOCOL.md                   # which script produces which report table
 ├── d3qn/                              # Algorithm 3: Dueling Double DQN (D3QN)
 │   ├── d3qn_pipeline.py               # Part A (MLP vs Dueling) + Part B (AdamW L2 & Dropout reg)
 │   └── result/                        # Saved D3QN weights (.pt), curves (.png) & tuning CSVs
@@ -70,7 +73,8 @@ python q_learning/q_learning_pipeline.py
 python dqn/dqn_v1.py
 python dqn/dqn_v2.py
 python dqn/dqn_v3.py
-python dqn/part_b_refine.py
+python -m compare.part_a_comparison      # Part A: all five models, same split/seeds
+python d3qn/ladder_multi.py --seeds 3    # Part A cross-check on multi-order
 python d3qn/d3qn_pipeline.py
 
 # 4. Run Automated Master Evaluation & Error Analysis

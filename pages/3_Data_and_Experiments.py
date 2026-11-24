@@ -15,7 +15,7 @@ from ui_shared import apply_theme, page_hero, sidebar_header
 RESULT_DIR = BASE_DIR / "result"
 QL_RESULT_DIR = BASE_DIR / "q_learning" / "result"
 DQN_RESULT_DIR = BASE_DIR / "dqn" / "result"
-FIVE_MODEL_SUMMARY_PATH = BASE_DIR / "dqn" / "five_model_summary.json"
+FIVE_MODEL_SUMMARY_PATH = BASE_DIR / "compare" / "part_a_summary.json"
 D3QN_RESULT_DIR = BASE_DIR / "d3qn" / "result"
 MULTI_RESULT_DIR = BASE_DIR / "d3qn" / "result_multi"
 EXPLORATION_DIR = BASE_DIR / "exploration" / "zomato_exploration"

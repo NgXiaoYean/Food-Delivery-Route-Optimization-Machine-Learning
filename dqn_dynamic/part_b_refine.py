@@ -10,7 +10,7 @@ entry point now runs the isolated v4 standard-DQN protocol, with separate
 validation/test partitions and new output directories. Historical artifacts
 are not overwritten. Use --smoke for a small validation-only integration run.
 
-Run from project root:  python -B dqn/part_b_refine.py --help
+Run from project root:  python -B dqn_dynamic/part_b_refine.py --help
 """
 import random
 import sys
@@ -23,7 +23,7 @@ sys.path.insert(0, str(BASE_DIR))
 # Dispatch before importing historical helpers: importing evaluate.py creates
 # shared output directories, which the isolated v4 CLI does not need.
 if __name__ == "__main__":
-    from dqn.run_experiments import main
+    from dqn_dynamic.run_experiments import main
     main()
     raise SystemExit(0)
 

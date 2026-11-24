@@ -12,11 +12,11 @@ No new third-party dependency is required for the v4 pipeline.
 
 ```powershell
 python -B -m unittest dqn.test_v4 -v
-python -B -m dqn.run_experiments --smoke
-python -B -m dqn.run_experiments --steps 60000 --seeds 11 22 33 --eval-episodes 200
+python -B -m dqn_dynamic.run_experiments --smoke
+python -B -m dqn_dynamic.run_experiments --steps 60000 --seeds 11 22 33 --eval-episodes 200
 ```
 
-`python -B dqn/part_b_refine.py` now invokes the same v4 runner. The old functions
+`python -B dqn_dynamic/part_b_refine.py` now invokes the same v4 runner. The old functions
 in that file are retained only as historical helpers; they are not used by the
 new pipeline. Do not use those helpers for new performance claims: their old
 evaluation conventions differ from v4.
@@ -24,7 +24,7 @@ evaluation conventions differ from v4.
 For a smaller **validation-only pilot**, use:
 
 ```powershell
-python -B -m dqn.run_experiments --steps 5000 --seeds 11 22 33 --eval-episodes 30 --validation-only
+python -B -m dqn_dynamic.run_experiments --steps 5000 --seeds 11 22 33 --eval-episodes 30 --validation-only
 ```
 
 The full defaults train four candidate configurations on three seeds, then
@@ -160,7 +160,7 @@ combination, and that slow-to-train models benefit from smarter search. Both
 are implemented in `hparam_search.py`:
 
 ```powershell
-python -B -m dqn.run_experiments --search random --trials 12 --finalists 3 --validation-only
+python -B -m dqn_dynamic.run_experiments --search random --trials 12 --finalists 3 --validation-only
 ```
 
 - **Search space (8 settings):** learning rate (log-uniform 1e-4..3e-3),
@@ -203,7 +203,7 @@ selection has been written, but human discipline is still needed across runs.
 - `run_experiments.py`: tuning, state/reward ablations, ensembles, evaluation.
 - `test_v4.py`: behavioral regression tests.
 
-Each invocation creates a new timestamped directory in `dqn/result/v4/` and
+Each invocation creates a new timestamped directory in `dqn_dynamic/result/` and
 refuses to reuse an existing directory. `--output` can name a new directory
 only inside that location. Historical results are never overwritten.
 

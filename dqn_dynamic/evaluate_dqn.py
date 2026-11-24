@@ -4,7 +4,7 @@ import heapq
 import numpy as np
 import pandas as pd
 
-from dqn.dynamic_env import MOVES
+from dqn_dynamic.dynamic_env import MOVES
 from dqn.experiments import EPISODE_OFFSETS
 
 

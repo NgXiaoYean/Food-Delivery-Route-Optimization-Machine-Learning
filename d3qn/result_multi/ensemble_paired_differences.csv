@@ -1,0 +1,46 @@
+scenario,comparison,metric,mean_difference,ci95_low,ci95_high,ci_excludes_zero
+normal test,Ensemble minus Greedy,reward,4.445,3.926,4.979,True
+normal test,Ensemble minus Greedy,hotspot_steps,-0.968,-1.066,-0.87,True
+normal test,Ensemble minus Greedy,late_min,-3.771,-4.265,-3.302,True
+normal test,Planner minus Ensemble,reward,0.891,0.708,1.074,True
+normal test,Planner minus Ensemble,hotspot_steps,-0.264,-0.31,-0.218,True
+normal test,Planner minus Ensemble,late_min,-0.691,-0.891,-0.496,True
+normal test,Ensemble minus average single seed,reward,0.786,0.613,0.967,True
+normal test,Ensemble minus average single seed,hotspot_steps,-0.106,-0.133,-0.078,True
+normal test,Ensemble minus average single seed,late_min,-0.722,-0.9,-0.55,True
+normal test,Average single seed minus Greedy,reward,3.659,3.183,4.159,True
+normal test,Average single seed minus Greedy,hotspot_steps,-0.862,-0.952,-0.773,True
+normal test,Average single seed minus Greedy,late_min,-3.049,-3.498,-2.603,True
+normal test,Planner minus average single seed,reward,1.677,1.454,1.904,True
+normal test,Planner minus average single seed,hotspot_steps,-0.37,-0.414,-0.326,True
+normal test,Planner minus average single seed,late_min,-1.413,-1.644,-1.191,True
+new order mid-trip,Ensemble minus Greedy,reward,5.042,4.038,6.082,True
+new order mid-trip,Ensemble minus Greedy,hotspot_steps,-1.328,-1.458,-1.202,True
+new order mid-trip,Ensemble minus Greedy,late_min,-4.434,-5.429,-3.398,True
+new order mid-trip,Planner minus Ensemble,reward,2.163,1.19,3.214,True
+new order mid-trip,Planner minus Ensemble,hotspot_steps,-0.4,-0.472,-0.328,True
+new order mid-trip,Planner minus Ensemble,late_min,-1.524,-2.639,-0.465,True
+new order mid-trip,Ensemble minus average single seed,reward,2.712,1.908,3.663,True
+new order mid-trip,Ensemble minus average single seed,hotspot_steps,-0.17,-0.218,-0.122,True
+new order mid-trip,Ensemble minus average single seed,late_min,-1.042,-1.827,-0.18,True
+new order mid-trip,Average single seed minus Greedy,reward,2.33,0.976,3.622,True
+new order mid-trip,Average single seed minus Greedy,hotspot_steps,-1.158,-1.275,-1.045,True
+new order mid-trip,Average single seed minus Greedy,late_min,-3.392,-4.508,-2.298,True
+new order mid-trip,Planner minus average single seed,reward,4.875,3.568,6.38,True
+new order mid-trip,Planner minus average single seed,hotspot_steps,-0.57,-0.636,-0.505,True
+new order mid-trip,Planner minus average single seed,late_min,-2.566,-3.539,-1.565,True
+unseen hotspot map,Ensemble minus Greedy,reward,4.487,3.985,5.024,True
+unseen hotspot map,Ensemble minus Greedy,hotspot_steps,-0.962,-1.058,-0.87,True
+unseen hotspot map,Ensemble minus Greedy,late_min,-3.813,-4.3,-3.335,True
+unseen hotspot map,Planner minus Ensemble,reward,0.935,0.724,1.155,True
+unseen hotspot map,Planner minus Ensemble,hotspot_steps,-0.286,-0.338,-0.238,True
+unseen hotspot map,Planner minus Ensemble,late_min,-0.666,-0.878,-0.459,True
+unseen hotspot map,Ensemble minus average single seed,reward,0.784,0.602,0.981,True
+unseen hotspot map,Ensemble minus average single seed,hotspot_steps,-0.117,-0.148,-0.087,True
+unseen hotspot map,Ensemble minus average single seed,late_min,-0.752,-0.942,-0.573,True
+unseen hotspot map,Average single seed minus Greedy,reward,3.703,3.191,4.207,True
+unseen hotspot map,Average single seed minus Greedy,hotspot_steps,-0.845,-0.931,-0.76,True
+unseen hotspot map,Average single seed minus Greedy,late_min,-3.061,-3.542,-2.602,True
+unseen hotspot map,Planner minus average single seed,reward,1.72,1.495,1.953,True
+unseen hotspot map,Planner minus average single seed,hotspot_steps,-0.403,-0.452,-0.356,True
+unseen hotspot map,Planner minus average single seed,late_min,-1.418,-1.661,-1.183,True

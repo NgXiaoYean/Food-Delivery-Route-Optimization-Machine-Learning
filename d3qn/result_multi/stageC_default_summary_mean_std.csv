@@ -1,0 +1,6 @@
+,success_rate,success_rate,on_time_order_rate,on_time_order_rate,avg_reward,avg_reward,avg_late_min,avg_late_min,avg_hotspot_steps,avg_hotspot_steps
+,mean,std,mean,std,mean,std,mean,std,mean,std
+scenario,,,,,,,,,,
+new order mid-trip,0.967,0.007,0.367,0.004,62.144,3.235,41.767,1.641,1.714,0.168
+normal test,0.995,0.002,0.411,0.003,52.574,1.125,21.088,0.517,1.043,0.081
+unseen hotspot map,0.995,0.003,0.411,0.01,53.114,1.068,20.552,0.557,0.845,0.139
