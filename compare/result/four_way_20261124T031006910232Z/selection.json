@@ -1,0 +1,6 @@
+{
+  "validation_winner": null,
+  "smoke_only": true,
+  "criterion": "mean delivery success, then on-time rate, then reward across seeds; fixed before test",
+  "warning": "This is a controlled architecture comparison, not the app's saved model selection."
+}

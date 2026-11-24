@@ -141,6 +141,8 @@ with st.expander("📊 What did the saved one-delivery benchmark find?"):
         st.image(str(benchmark_image), width="stretch")
     if benchmark_csv.exists():
         benchmark = pd.read_csv(benchmark_csv)
+        if "agent" in benchmark.columns:
+            benchmark["agent"] = benchmark["agent"].replace({"Dueling DDQN": "D3QN", "Tuned DDQN": "Double DQN"})
         formats = {
             "success_rate": "{:.1%}", "avg_reward": "{:.2f}", "avg_steps": "{:.2f}",
             "avg_delivery_time_min": "{:.2f}", "on_time_rate": "{:.1%}",

@@ -85,7 +85,7 @@ ROUTE_STYLES = {
     "Direct Route (Baseline)": {"color": "#64748B", "weight": 3, "dash": "6, 6"},
     "Random Baseline": {"color": "#94A3B8", "weight": 2, "dash": "4, 6"},
     "Shortest-Time Planner (Dijkstra)": {"color": "#475569", "weight": 3, "dash": "4, 4"},
-    "Double DQN (DDQN)": {"color": "#0E7490", "weight": 4, "dash": "7, 3"},
+    "Double DQN": {"color": "#0E7490", "weight": 4, "dash": "7, 3"},
     "Dueling Double DQN (D3QN)": {"color": "#2563EB", "weight": 4, "dash": None},
     "Deep Q-Network (DQN)": {"color": "#0891B2", "weight": 4, "dash": None},
     "Tabular Q-Learning": {"color": "#4F46E5", "weight": 4, "dash": None},
@@ -93,7 +93,7 @@ ROUTE_STYLES = {
 }
 
 MODEL_INFO = {
-    "Double DQN (DDQN)": ("Double DQN (DDQN)", "A tuned DQN variant that uses separate networks to select and evaluate actions."),
+    "Double DQN": ("Double DQN", "A tuned DQN variant that uses separate networks to select and evaluate actions (no dueling streams)."),
     "Dueling Double DQN (D3QN)": ("Dueling Double DQN (D3QN)", "Adds a dueling network to Double DQN for route decisions around traffic hotspots."),
     "Deep Q-Network (DQN)": ("Deep Q-Network", "Learns which way to move using the destination and nearby traffic."),
     "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
@@ -303,7 +303,7 @@ def load_system_resources():
     elif m1 is not None:
         policies["Deep Q-Network (DQN)"] = dqn_policy_v1(m1)
     if tuned_ddqn is not None:
-        policies["Double DQN (DDQN)"] = dqn_policy_v3(tuned_ddqn)
+        policies["Double DQN"] = dqn_policy_v3(tuned_ddqn)
     if d3qn_net is not None:
         try:
             from d3qn.d3qn_pipeline import make_d3qn_policy
@@ -603,7 +603,7 @@ def run_validation_benchmark(n_episodes: int = 100):
             "Algorithm": name,
             "Delivery Rate": f"{(successes / n_episodes) * 100:.1f}%",
             "SLA Adherence (<=45m)": f"{(sla_ok / n_episodes) * 100:.1f}%",
-            "Zomato Target SLA": f"{(zomato_sla_ok / n_episodes) * 100:.1f}%",
+            "Benchmark Time Proxy": f"{(zomato_sla_ok / n_episodes) * 100:.1f}%",
             "Avg Duration (min)": round(mean_min, 2),
             "Time Saved vs. Direct (min)": f"{time_saved_min:+.2f}",
             "Distance/Cost Saved (%)": f"{dist_saved_pct:+.1f}%",
