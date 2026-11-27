@@ -1514,42 +1514,190 @@ with tab_map:
                 hide_index=True,
             )
 
-    with st.expander("Explore the AI grid and watch DQN learn", expanded=False):
+    with st.expander("AI grid and learning demo", expanded=False):
+        from compare.learning_view import (catalog as demo_catalog, fastest_time_policy,
+                                           grid_svg, learning_history, load_policy, replay,
+                                           shortest_distance_policy, validation_progress)
+        from compare.route_animation import animation_html
+
         st.caption(
-            "The models learn on a simplified 10×10 grid of city blocks. Red cells are traffic jams, "
-            "R is the restaurant and C is the customer."
+            "All routes below use the same selected restaurant, customer, traffic, weather, "
+            "jam cells and 60-move delivery simulator. Red cells slow the rider; they are not walls. "
+            "These are the controlled Part A checkpoints, which may differ from the historical "
+            "checkpoint used on the map above."
         )
-        g_cols = st.columns(min(len(sims), 3))
-        for idx, (m_name, sim) in enumerate(sims.items()):
-            with g_cols[idx % len(g_cols)]:
-                fig = draw_grid_diagnostic(sim, model_label(m_name))
-                st.pyplot(fig)
-                plt.close(fig)
-        st.caption(
-            f"Moves taken by {model_label(primary_model)} ({primary_sim['steps']} steps, reward {primary_sim['reward']}):"
-        )
-        st.code(" → ".join(primary_sim["actions"]) or "Already at destination", language="text")
-        if TORCH_AVAILABLE:
-            st.markdown("**Watch a DQN learn on this grid**")
+        record = demo_catalog()
+        if not record:
+            st.info("No exported Part A checkpoints are available for the AI grid.")
+        else:
+            @st.cache_resource(show_spinner=False)
+            def demo_policy(model_name, filename, file_mtime_ns):
+                return load_policy(model_name, {"file": filename})
+
+            def cached_demo_policy(model_name, stage):
+                path = BASE_DIR / "compare" / "checkpoints" / stage["file"]
+                return demo_policy(model_name, stage["file"], path.stat().st_mtime_ns)
+
+            routes, unavailable = {}, []
+            for model_name, details in record["models"].items():
+                best_stage = details["stages"][0]
+                try:
+                    policy = cached_demo_policy(model_name, best_stage)
+                    routes[model_name] = replay(policy, test_orders, primary_sim)
+                except (ImportError, FileNotFoundError, ValueError, RuntimeError) as exc:
+                    unavailable.append(f"{model_name}: {exc}")
+
+            st.markdown("**AI grid · best validated checkpoint for each algorithm**")
+            if unavailable:
+                st.info("Unavailable here: " + "; ".join(unavailable))
+            if routes:
+                cards = st.columns(min(3, len(routes)), gap="small")
+                for index, (model_name, route) in enumerate(routes.items()):
+                    details = record["models"][model_name]
+                    stage = details["stages"][0]
+                    status = "Delivered" if route["delivered"] else "Not delivered"
+                    with cards[index % len(cards)]:
+                        st.markdown(
+                            '<div style="border:1px solid #e2e8f0;border-radius:10px;'
+                            'padding:10px;margin-bottom:10px;min-height:420px">'
+                            f'<div style="font-weight:700;font-size:14px;min-height:38px">{model_name}</div>'
+                            + grid_svg(route)
+                            + '<div style="font-size:12px;line-height:1.65;margin-top:8px">'
+                            f'<b>Best checkpoint:</b> after {stage["episode"]:,} completed episodes · seed {stage["training_seed"]}<br>'
+                            f'<b>Total training:</b> {details["total_completed_episodes"]:,} completed episodes · '
+                            f'{record["train_steps"]:,} steps<br>'
+                            f'<b>Route:</b> {route["steps"]} steps · minimum {route["min_steps"]}<br>'
+                            f'<b>Time:</b> {route["minutes"]:.1f} simulated min · <b>reward:</b> {route["reward"]:.1f}<br>'
+                            f'<b>Status:</b> {status} · <b>step efficiency:</b> {route["efficiency_pct"]:.1f}%'
+                            '</div></div>', unsafe_allow_html=True)
+                has_milestones = any(stage["kind"] == "milestone"
+                                     for details in record["models"].values()
+                                     for stage in details["stages"])
+                st.caption(
+                    "Best means highest validation delivery rate, then on-time rate, then reward "
+                    "among saved checkpoints. "
+                    + ("This run contains separately evaluated episode milestones. "
+                       if has_milestones else
+                       "This run saved final weights only, so best and final currently use the same file. ")
+                    + "Rewards here share one environment and scale. Step efficiency is minimum "
+                    "steps divided by actual steps for completed routes; it does not measure speed. "
+                    "The Data & experiments study summarizes final checkpoints across five seeds."
+                )
+
+            shortest = replay(shortest_distance_policy, test_orders, primary_sim)
+            fastest = replay(fastest_time_policy, test_orders, primary_sim)
             st.caption(
-                "Train a small DQN on the displayed restaurant, customer and traffic cells. "
-                "Choose a training stage, then play or step through the rider's route and reward feedback. "
-                "This teaching demo trains in memory and is separate from the evaluated DQN above."
+                f"Benchmarks on this grid: minimum distance = {shortest['min_steps']} steps "
+                f"({shortest['minutes']:.1f} min on the direct route); fastest simulated time "
+                f"with full jam-map knowledge = {fastest['minutes']:.1f} min "
+                f"in {fastest['steps']} steps. A fastest-time route may take more steps."
             )
-            demo_key = (
-                tuple(primary_sim["start"]), tuple(primary_sim["dest"]),
-                tuple(tuple(map(int, cell)) for cell in np.argwhere(primary_sim["env"].hotspots)),
-            )
-            if st.button("Train DQN learning demo", key="train_dqn_learning_demo"):
-                from dqn.learning_demo import train_demo
-                with st.spinner("Training demo DQN on this grid..."):
-                    st.session_state["dqn_learning_demo"] = (
-                        demo_key, train_demo(*demo_key)
+            if st.toggle("Show benchmark routes", value=False, key="show_ai_benchmarks"):
+                baseline_cols = st.columns(2)
+                for col, label, route in zip(
+                    baseline_cols,
+                    ("Minimum distance", "Fastest simulated time (full map knowledge)"),
+                    (shortest, fastest),
+                ):
+                    with col:
+                        st.markdown(
+                            '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px">'
+                            f'<div style="font-weight:700;font-size:14px;min-height:38px">{label}</div>'
+                            + grid_svg(route)
+                            + f'<div style="font-size:12px;margin-top:8px">{route["steps"]} steps · '
+                              f'{route["minutes"]:.1f} simulated min</div></div>',
+                            unsafe_allow_html=True,
+                        )
+
+            st.markdown("**Learning demo · replay a real checkpoint**")
+            if routes:
+                chosen_model = st.selectbox("Algorithm", list(routes), key="learning_algorithm")
+                stages = [stage for stage in record["models"][chosen_model]["stages"]
+                          if (BASE_DIR / "compare" / "checkpoints" / stage["file"]).is_file()]
+                stages.sort(key=lambda stage: (0 if stage["kind"] == "milestone" else
+                                               1 if stage["kind"] == "best" else 2,
+                                               stage["episode"]))
+                chosen_stage = st.selectbox(
+                    "Available training stage", stages, key=f"learning_stage_{chosen_model}",
+                    format_func=lambda stage: f'{stage["label"]} ({stage["episode"]:,} completed episodes)',
+                )
+                if chosen_stage:
+                    selected_policy = cached_demo_policy(chosen_model, chosen_stage)
+                    selected_route = replay(selected_policy, test_orders, primary_sim)
+                    components.html(animation_html(chosen_model, chosen_stage, selected_route),
+                                    height=480, scrolling=True)
+                st.caption(
+                    "Only genuine saved stages are selectable. SARSA is not offered because this "
+                    "project has no SARSA model or checkpoint. "
+                    + ("The earlier 0/50/100/150/200/300-episode weights were not saved in this "
+                       "run; an instrumented training run is needed."
+                       if not has_milestones else
+                       "Checkpoint evaluations show whether more episodes helped on validation trips.")
+                )
+
+                best_episode = record["models"][chosen_model]["stages"][0]["episode"]
+                history = learning_history()
+                history = history[(history["model"] == chosen_model) &
+                                  (history["training_seed"] ==
+                                   record["models"][chosen_model]["selected_seed"])]
+                if not history.empty:
+                    st.markdown("**Recorded training progress**")
+                    st.caption(
+                        "Recent averages over up to 100 training deliveries; these are not validation "
+                        "results. More episodes do not guarantee a better route, so checkpoint "
+                        "selection uses validation trips instead."
                     )
-            saved_demo = st.session_state.get("dqn_learning_demo")
-            if saved_demo and saved_demo[0] == demo_key:
-                from dqn.learning_demo import animation_html
-                components.html(animation_html(saved_demo[1]), height=650)
+                    marker = alt.Chart(pd.DataFrame({"episodes": [best_episode]})).mark_rule(
+                        color="#ea580c", strokeDash=[4, 3]).encode(x="episodes:Q")
+                    ch_reward, ch_success = st.columns(2)
+                    with ch_reward:
+                        reward_plot = alt.Chart(history).mark_line(color="#2563eb").encode(
+                            x=alt.X("episodes:Q", title="Completed training episodes"),
+                            y=alt.Y("mean_recent_reward:Q", title="Recent average reward"))
+                        st.altair_chart(reward_plot + marker, width="stretch")
+                    with ch_success:
+                        success_plot = alt.Chart(history).mark_line(color="#15803d").encode(
+                            x=alt.X("episodes:Q", title="Completed training episodes"),
+                            y=alt.Y("recent_success:Q", title="Recent delivery success", axis=alt.Axis(format="%")))
+                        st.altair_chart(success_plot + marker, width="stretch")
+                measured = validation_progress()
+                measured = measured[(measured["model"] == chosen_model) &
+                                    (measured["training_seed"] ==
+                                     record["models"][chosen_model]["selected_seed"])].sort_values("episode")
+                validation = record["models"][chosen_model]["validation"]
+                st.caption(
+                    f"Final-checkpoint validation: {validation['delivered']:.1%} delivered · "
+                    f"{validation['elapsed_min']:.1f} average simulated minutes · "
+                    f"{validation['steps']:.1f} average steps. "
+                    + ("The orange line marks the selected best checkpoint episode."
+                       if len(measured) > 1 else
+                       "Earlier validation time and steps were not recorded in this run; "
+                       "the orange line marks the final checkpoint episode.")
+                )
+                if len(measured) > 1:
+                    st.markdown("**Validation at saved checkpoints**")
+                    st.caption(
+                        "Each point uses the same validation deliveries. Orange marks the selected "
+                        "best checkpoint. Delivery time includes successful trips only, so read it "
+                        "together with the success-rate graph."
+                    )
+                    best_line = alt.Chart(pd.DataFrame({"episode": [best_episode]})).mark_rule(
+                        color="#ea580c", strokeDash=[4, 3]).encode(x="episode:Q")
+                    metric_specs = (
+                        ("reward", "Average reward", "#2563eb"),
+                        ("delivered", "Delivery success", "#15803d"),
+                        ("delivery_min", "Completed-delivery time (min)", "#7c3aed"),
+                        ("steps", "Average steps", "#d97706"),
+                    )
+                    for left, right in ((0, 1), (2, 3)):
+                        pair = st.columns(2)
+                        for col, index in zip(pair, (left, right)):
+                            field, title, color = metric_specs[index]
+                            with col:
+                                line = alt.Chart(measured).mark_line(point=True, color=color).encode(
+                                    x=alt.X("episode:Q", title="Completed training episodes"),
+                                    y=alt.Y(f"{field}:Q", title=title))
+                                st.altair_chart(line + best_line, width="stretch")
 
 # ------------------------------------------------------------------------------
 # TAB 2: COMPARE MODELS

@@ -1,5 +1,5 @@
 {
-  "source_run": "four_way_20261122T063921071579Z",
+  "source_run": "four_way_20261127T064244215120Z",
   "data_sha256": "665ae090225b8d4a3e68c6223106b09115098cb0689e3ff9a03882afd16706b3",
   "seeds": [
     11,
@@ -34,14 +34,14 @@
     {
       "model": "Dueling DQN",
       "delivered_pct": 100.0,
-      "on_time_pct": 57.6,
-      "completed_trip_min": 25.9418
+      "on_time_pct": 57.7,
+      "completed_trip_min": 26.0391
     },
     {
       "model": "D3QN",
       "delivered_pct": 100.0,
-      "on_time_pct": 57.2,
-      "completed_trip_min": 26.1283
+      "on_time_pct": 57.6,
+      "completed_trip_min": 26.141
     }
   ],
   "per_seed": [
@@ -49,51 +49,51 @@
       "model": "D3QN",
       "training_seed": 11,
       "delivered": 1.0,
-      "on_time": 0.565,
-      "reward": 32.40175,
-      "elapsed_min": 26.305,
+      "on_time": 0.575,
+      "reward": 32.6065,
+      "elapsed_min": 26.1575,
       "steps": 7.815,
-      "hotspot_steps": 0.485
+      "hotspot_steps": 0.455
     },
     {
       "model": "D3QN",
       "training_seed": 22,
       "delivered": 1.0,
       "on_time": 0.58,
-      "reward": 33.17825,
-      "elapsed_min": 25.704,
+      "reward": 32.91475,
+      "elapsed_min": 25.8965,
       "steps": 7.815,
-      "hotspot_steps": 0.315
+      "hotspot_steps": 0.37
     },
     {
       "model": "D3QN",
       "training_seed": 33,
       "delivered": 1.0,
       "on_time": 0.575,
-      "reward": 32.576,
-      "elapsed_min": 26.169,
+      "reward": 32.18275,
+      "elapsed_min": 26.5535,
       "steps": 7.815,
-      "hotspot_steps": 0.45
+      "hotspot_steps": 0.595
     },
     {
       "model": "D3QN",
       "training_seed": 44,
       "delivered": 1.0,
       "on_time": 0.575,
-      "reward": 32.6875,
-      "elapsed_min": 26.09,
+      "reward": 32.87175,
+      "elapsed_min": 25.9515,
       "steps": 7.815,
-      "hotspot_steps": 0.43
+      "hotspot_steps": 0.39
     },
     {
       "model": "D3QN",
       "training_seed": 55,
       "delivered": 1.0,
-      "on_time": 0.565,
-      "reward": 32.346,
-      "elapsed_min": 26.3735,
+      "on_time": 0.575,
+      "reward": 32.5745,
+      "elapsed_min": 26.146,
       "steps": 7.815,
-      "hotspot_steps": 0.53
+      "hotspot_steps": 0.44
     },
     {
       "model": "DQN",
@@ -199,51 +199,51 @@
       "model": "Dueling DQN",
       "training_seed": 11,
       "delivered": 1.0,
-      "on_time": 0.575,
-      "reward": 32.81925,
-      "elapsed_min": 26.0215,
+      "on_time": 0.58,
+      "reward": 33.0445,
+      "elapsed_min": 25.8,
       "steps": 7.815,
-      "hotspot_steps": 0.425
+      "hotspot_steps": 0.345
     },
     {
       "model": "Dueling DQN",
       "training_seed": 22,
       "delivered": 1.0,
-      "on_time": 0.58,
-      "reward": 32.9655,
-      "elapsed_min": 25.8135,
+      "on_time": 0.57,
+      "reward": 32.67575,
+      "elapsed_min": 26.101,
       "steps": 7.815,
-      "hotspot_steps": 0.335
+      "hotspot_steps": 0.43
     },
     {
       "model": "Dueling DQN",
       "training_seed": 33,
       "delivered": 1.0,
-      "on_time": 0.575,
-      "reward": 33.05575,
-      "elapsed_min": 25.813,
+      "on_time": 0.58,
+      "reward": 32.7145,
+      "elapsed_min": 26.0045,
       "steps": 7.815,
-      "hotspot_steps": 0.355
+      "hotspot_steps": 0.39
     },
     {
       "model": "Dueling DQN",
       "training_seed": 44,
       "delivered": 1.0,
-      "on_time": 0.575,
-      "reward": 32.54475,
-      "elapsed_min": 26.118,
+      "on_time": 0.58,
+      "reward": 32.71525,
+      "elapsed_min": 26.002,
       "steps": 7.815,
-      "hotspot_steps": 0.415
+      "hotspot_steps": 0.39
     },
     {
       "model": "Dueling DQN",
       "training_seed": 55,
       "delivered": 1.0,
       "on_time": 0.575,
-      "reward": 32.8385,
-      "elapsed_min": 25.943,
+      "reward": 32.3485,
+      "elapsed_min": 26.288,
       "steps": 7.815,
-      "hotspot_steps": 0.38
+      "hotspot_steps": 0.47
     },
     {
       "model": "Q-Learning",
