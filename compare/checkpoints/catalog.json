@@ -1,0 +1,398 @@
+{
+  "source_run": "four_way_20261127T064244215120Z",
+  "data_sha256": "665ae090225b8d4a3e68c6223106b09115098cb0689e3ff9a03882afd16706b3",
+  "selection": "validation delivered, then on-time, then common reward",
+  "train_steps": 60000,
+  "training_seeds": [
+    11,
+    22,
+    33,
+    44,
+    55
+  ],
+  "validation_trips_per_checkpoint": 200,
+  "train_map_seed": 0,
+  "validation_map_seed": 101,
+  "models": {
+    "Q-Learning": {
+      "selected_seed": 11,
+      "total_completed_episodes": 1435,
+      "validation": {
+        "delivered": 0.645,
+        "on_time": 0.235,
+        "reward": -33.8765,
+        "elapsed_min": 97.33599999999998,
+        "steps": 27.83
+      },
+      "best_validation": {
+        "delivered": 0.645,
+        "on_time": 0.235,
+        "reward": -33.8765,
+        "elapsed_min": 97.33599999999998,
+        "steps": 27.83
+      },
+      "stages": [
+        {
+          "label": "Best validated checkpoint",
+          "episode": 1435,
+          "file": "Q-Learning_seed11.pkl",
+          "training_seed": 11,
+          "kind": "best"
+        },
+        {
+          "label": "Latest (final) checkpoint",
+          "episode": 1435,
+          "file": "Q-Learning_seed11.pkl",
+          "training_seed": 11,
+          "kind": "final"
+        },
+        {
+          "label": "Before training",
+          "episode": 0,
+          "file": "Q-Learning_seed11_ep0.pkl",
+          "training_seed": 11,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 50 episodes",
+          "episode": 50,
+          "file": "Q-Learning_seed11_ep50.pkl",
+          "training_seed": 11,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 100 episodes",
+          "episode": 100,
+          "file": "Q-Learning_seed11_ep100.pkl",
+          "training_seed": 11,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 150 episodes",
+          "episode": 150,
+          "file": "Q-Learning_seed11_ep150.pkl",
+          "training_seed": 11,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 200 episodes",
+          "episode": 200,
+          "file": "Q-Learning_seed11_ep200.pkl",
+          "training_seed": 11,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 300 episodes",
+          "episode": 300,
+          "file": "Q-Learning_seed11_ep300.pkl",
+          "training_seed": 11,
+          "kind": "milestone"
+        }
+      ]
+    },
+    "DQN": {
+      "selected_seed": 44,
+      "total_completed_episodes": 4322,
+      "validation": {
+        "delivered": 1.0,
+        "on_time": 0.475,
+        "reward": 30.609499999999997,
+        "elapsed_min": 28.352000000000004,
+        "steps": 8.47
+      },
+      "best_validation": {
+        "delivered": 1.0,
+        "on_time": 0.475,
+        "reward": 30.609499999999997,
+        "elapsed_min": 28.352000000000004,
+        "steps": 8.47
+      },
+      "stages": [
+        {
+          "label": "Best validated checkpoint",
+          "episode": 4322,
+          "file": "DQN_seed44.pt",
+          "training_seed": 44,
+          "kind": "best"
+        },
+        {
+          "label": "Latest (final) checkpoint",
+          "episode": 4322,
+          "file": "DQN_seed44.pt",
+          "training_seed": 44,
+          "kind": "final"
+        },
+        {
+          "label": "Before training",
+          "episode": 0,
+          "file": "DQN_seed44_ep0.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 50 episodes",
+          "episode": 50,
+          "file": "DQN_seed44_ep50.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 100 episodes",
+          "episode": 100,
+          "file": "DQN_seed44_ep100.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 150 episodes",
+          "episode": 150,
+          "file": "DQN_seed44_ep150.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 200 episodes",
+          "episode": 200,
+          "file": "DQN_seed44_ep200.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 300 episodes",
+          "episode": 300,
+          "file": "DQN_seed44_ep300.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        }
+      ]
+    },
+    "Double DQN": {
+      "selected_seed": 55,
+      "total_completed_episodes": 4258,
+      "validation": {
+        "delivered": 1.0,
+        "on_time": 0.485,
+        "reward": 30.870500000000003,
+        "elapsed_min": 28.13,
+        "steps": 8.47
+      },
+      "best_validation": {
+        "delivered": 1.0,
+        "on_time": 0.485,
+        "reward": 30.870500000000003,
+        "elapsed_min": 28.13,
+        "steps": 8.47
+      },
+      "stages": [
+        {
+          "label": "Best validated checkpoint",
+          "episode": 4258,
+          "file": "Double_DQN_seed55.pt",
+          "training_seed": 55,
+          "kind": "best"
+        },
+        {
+          "label": "Latest (final) checkpoint",
+          "episode": 4258,
+          "file": "Double_DQN_seed55.pt",
+          "training_seed": 55,
+          "kind": "final"
+        },
+        {
+          "label": "Before training",
+          "episode": 0,
+          "file": "Double_DQN_seed55_ep0.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 50 episodes",
+          "episode": 50,
+          "file": "Double_DQN_seed55_ep50.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 100 episodes",
+          "episode": 100,
+          "file": "Double_DQN_seed55_ep100.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 150 episodes",
+          "episode": 150,
+          "file": "Double_DQN_seed55_ep150.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 200 episodes",
+          "episode": 200,
+          "file": "Double_DQN_seed55_ep200.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 300 episodes",
+          "episode": 300,
+          "file": "Double_DQN_seed55_ep300.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        }
+      ]
+    },
+    "Dueling DQN": {
+      "selected_seed": 44,
+      "total_completed_episodes": 4315,
+      "validation": {
+        "delivered": 1.0,
+        "on_time": 0.49,
+        "reward": 30.921,
+        "elapsed_min": 28.119,
+        "steps": 8.47
+      },
+      "best_validation": {
+        "delivered": 1.0,
+        "on_time": 0.49,
+        "reward": 30.921,
+        "elapsed_min": 28.119,
+        "steps": 8.47
+      },
+      "stages": [
+        {
+          "label": "Best validated checkpoint",
+          "episode": 4315,
+          "file": "Dueling_DQN_seed44.pt",
+          "training_seed": 44,
+          "kind": "best"
+        },
+        {
+          "label": "Latest (final) checkpoint",
+          "episode": 4315,
+          "file": "Dueling_DQN_seed44.pt",
+          "training_seed": 44,
+          "kind": "final"
+        },
+        {
+          "label": "Before training",
+          "episode": 0,
+          "file": "Dueling_DQN_seed44_ep0.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 50 episodes",
+          "episode": 50,
+          "file": "Dueling_DQN_seed44_ep50.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 100 episodes",
+          "episode": 100,
+          "file": "Dueling_DQN_seed44_ep100.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 150 episodes",
+          "episode": 150,
+          "file": "Dueling_DQN_seed44_ep150.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 200 episodes",
+          "episode": 200,
+          "file": "Dueling_DQN_seed44_ep200.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 300 episodes",
+          "episode": 300,
+          "file": "Dueling_DQN_seed44_ep300.pt",
+          "training_seed": 44,
+          "kind": "milestone"
+        }
+      ]
+    },
+    "D3QN": {
+      "selected_seed": 55,
+      "total_completed_episodes": 4349,
+      "validation": {
+        "delivered": 1.0,
+        "on_time": 0.49,
+        "reward": 30.653000000000002,
+        "elapsed_min": 28.3175,
+        "steps": 8.52
+      },
+      "best_validation": {
+        "delivered": 1.0,
+        "on_time": 0.49,
+        "reward": 30.653000000000002,
+        "elapsed_min": 28.3175,
+        "steps": 8.52
+      },
+      "stages": [
+        {
+          "label": "Best validated checkpoint",
+          "episode": 4349,
+          "file": "D3QN_seed55.pt",
+          "training_seed": 55,
+          "kind": "best"
+        },
+        {
+          "label": "Latest (final) checkpoint",
+          "episode": 4349,
+          "file": "D3QN_seed55.pt",
+          "training_seed": 55,
+          "kind": "final"
+        },
+        {
+          "label": "Before training",
+          "episode": 0,
+          "file": "D3QN_seed55_ep0.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 50 episodes",
+          "episode": 50,
+          "file": "D3QN_seed55_ep50.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 100 episodes",
+          "episode": 100,
+          "file": "D3QN_seed55_ep100.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 150 episodes",
+          "episode": 150,
+          "file": "D3QN_seed55_ep150.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 200 episodes",
+          "episode": 200,
+          "file": "D3QN_seed55_ep200.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        },
+        {
+          "label": "After 300 episodes",
+          "episode": 300,
+          "file": "D3QN_seed55_ep300.pt",
+          "training_seed": 55,
+          "kind": "milestone"
+        }
+      ]
+    }
+  }
+}

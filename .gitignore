@@ -41,3 +41,11 @@ data/zomato_dataset.csv
 !exploration/zomato_exploration/*.csv
 !exploration/zomato_exploration/*.png
 !data/data_checks.csv
+
+# Small validation-selected checkpoints and recorded learning history for the UI.
+!compare/checkpoints/*.pt
+!compare/checkpoints/*.pkl
+!compare/checkpoints/*.csv
+
+# Detailed controlled runs stay local; the selected dashboard artifacts are above.
+compare/result/four_way_*/

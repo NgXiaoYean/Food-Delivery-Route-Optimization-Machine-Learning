@@ -20,7 +20,7 @@ See **[`docs/PROTOCOL.md`](docs/PROTOCOL.md)** for the complete one-page experim
 > - **`57.8% ± 14.0%` (Unseen Map, `compare/part_a_comparison.py`):** Trained on `map_seed=0` (60,000 steps, 64/16/20 split, 5 seeds) and evaluated on an unseen test hotspot map (`map_seed=202`).
 >
 > **Note on Single-Order vs. Multi-Order DQN-Family Results:**
-> - On **Single-Order (`compare/part_a_comparison.py`, 5 seeds)**, `DQN` (`99.8%` delivered, `57.5%` on-time proxy), `Double DQN` (`100.0%`, `56.6%`), `Dueling DQN` (`100.0%`, `57.6%`), and `D3QN` (`100.0%`, `57.2%`) are statistically tied (mean rewards `32.1–32.8`).
+> - On **Single-Order (`compare/part_a_comparison.py`, 5 seeds)**, `DQN` (`99.8%` delivered, `57.5%` on-time proxy), `Double DQN` (`100.0%`, `56.6%`), `Dueling DQN` (`100.0%`, `57.7%`), and `D3QN` (`100.0%`, `57.6%`) are statistically tied (mean rewards `32.1–32.7`).
 > - On **Multi-Order (`d3qn/`, 1–3 customers, 2,000 test trips)**, the 5-seed **D3QN Ensemble** beats `Greedy` by **`+4.35`** (`95% CI [4.09, 4.61]`, normal), **`+5.25`** (`[4.67, 5.81]`, new order mid-trip), and **`+3.92`** (`[3.69, 4.16]`, unseen map), closing **74%–84%** of the gap to the full-map Dijkstra Planner.
 
 ---
