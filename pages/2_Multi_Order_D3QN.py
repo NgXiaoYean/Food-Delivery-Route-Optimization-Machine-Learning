@@ -2,11 +2,12 @@
 "Several deliveries" page: one rider, 1 to 3 customers, optional new order mid-trip.
 Shows the route chosen by the trained Dueling Double DQN (D3QN) agents next to two simple baselines.
 
-Opened from the page switcher in the sidebar (ui_shared.sidebar_header).
+Opened from the delivery choice in the sidebar.
 Run from the project root:  streamlit run app.py
 Needs the saved models in d3qn/result_multi/  (made by:  python d3qn/d3qn_multi.py --stage C)
 """
 import sys
+from html import escape
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -17,12 +18,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
-from ui_shared import apply_theme, page_hero, sidebar_header, step_head
+from ui_shared import apply_theme, html_kpi, page_hero, route_tabs, sidebar_header, step_head
 from env_multi import MultiDeliveryEnv
 from pages.multi_trip_setup import prepare_trip
+from multi_route_map import build_map, test_order_locations
 
 RESULT_DIR = BASE_DIR / "d3qn" / "result_multi"
+DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
 TRAFFIC = {0: "Low", 1: "Medium", 2: "High", 3: "Jam"}
 WEATHER = {0: "Clear", 1: "Windy", 2: "Fog", 3: "Stormy"}
 TRAFFIC_ICONS = {0: "🟢", 1: "🟡", 2: "🟠", 3: "🔴"}
@@ -73,11 +77,16 @@ def load_everything():
     return envs, policies, len(nets)
 
 
+@st.cache_data(show_spinner=False)
+def map_order_locations():
+    return test_order_locations(DATA_PATH)
+
+
 def rollout(env, policy, seed, setup):
     """Drive one trip and record the path and the delivery events."""
     prepare_trip(env, seed, setup)
     start, n0 = env.pos, len(env.dests)
-    trail, events, new_order_step, total, hot = [env.pos], [], None, 0.0, 0
+    trail, events, delivered_at, new_order_step, new_order_time, total, hot = [env.pos], [], {}, None, None, 0.0, 0
     done, info = False, {}
     while not done:
         before_flags, before_n = list(env.delivered_flags), len(env.dests)
@@ -87,12 +96,15 @@ def rollout(env, policy, seed, setup):
         trail.append(env.pos)
         if len(env.dests) > before_n and new_order_step is None:
             new_order_step = env.steps
+            new_order_time = float(env.elapsed_min)
         for i, (b, a) in enumerate(zip(before_flags, env.delivered_flags)):
             if a and not b:
                 events.append((env.steps, i))
+                delivered_at[i] = float(env.elapsed_min)
         done = term or trunc
     return dict(trail=trail, start=start, dests=list(env.dests), deadlines=list(env.deadlines), events=events,
-                new_order_step=new_order_step, n_initial=n0, reward=total, hot=hot, info=info,
+                new_order_step=new_order_step, new_order_time=new_order_time, n_initial=n0,
+                delivered_at=delivered_at, reward=total, hot=hot, info=info,
                 hotspots=env.hotspots.copy(), traffic=env.traffic, weather=env.weather)
 
 
@@ -123,7 +135,7 @@ def draw(runs, n):
 
 
 # ==============================================================================
-# SIDEBAR: page switcher, then the two choices needed to plan a trip
+# SIDEBAR: trip inputs and route-planner choice
 # ==============================================================================
 try:
     envs, policies, n_models = load_everything()
@@ -147,17 +159,17 @@ with st.sidebar:
     if load_error is None:
         step_head(1, "Choose orders")
         source = st.segmented_control(
-            "Where the orders come from", ["Dataset orders", "Make my own"],
-            default="Dataset orders", label_visibility="collapsed",
+            "Where the orders come from", ["From dataset", "Make my own"],
+            default="From dataset", label_visibility="collapsed",
             help="Pick held-out dataset rows, or set the traffic and customer locations yourself.",
-        ) or "Dataset orders"
+        ) or "From dataset"
         with st.expander("More options: trip situation"):
             scen_name = st.selectbox("Situation", list(SCENARIOS))
             st.caption(SCENARIOS[scen_name])
         is_dynamic = scen_name == "A new order arrives mid-trip"
         customer_options = [1, 2] if is_dynamic else [1, 2, 3]
 
-        if source == "Dataset orders":
+        if source == "From dataset":
             example_trip = st.toggle("Use a ready-made example trip", value=False,
                                      help="Reproduce one of the original numbered test trips.")
             if example_trip:
@@ -224,9 +236,13 @@ with st.sidebar:
         step_head(2, "Choose a route planner")
         preferred = next((name for name in ("D3QN ensemble", "D3QN single model", "Greedy (nearest first)")
                           if name in policies), next(iter(policies)))
-        primary = st.selectbox("Route planner", list(policies), index=list(policies).index(preferred),
-                               format_func=label)
+        primary = st.selectbox(
+            "Route planner", list(policies), index=list(policies).index(preferred),
+            format_func=lambda name: label(name) if name.startswith("D3QN") else f"Reference: {label(name)}",
+        )
         st.caption(METHODS[primary][2])
+        st.caption("This page uses multi-order D3QN for AI routes. The five-model Part A comparison "
+                   "is under One delivery → Compare results.")
         with st.expander("More options: compare routes"):
             compare_all = st.toggle("Compare all planners on this trip", value=False)
         chosen = [primary] + ([name for name in policies if name != primary] if compare_all else [])
@@ -235,7 +251,7 @@ page_hero(
     "Several deliveries · Reinforcement learning",
     "Plan several deliveries",
     "One rider carries 1 to 3 orders. The planner must decide which customer to visit first "
-    "and which streets to take, while traffic jams slow some blocks down.",
+    "and which grid blocks to cross, while traffic jams slow some blocks down.",
     ["Choose orders", "Choose a route planner", "See the route and results"],
 )
 st.write("")
@@ -254,7 +270,7 @@ if n_models == 0:
         unsafe_allow_html=True,
     )
 
-tab_trip, tab_results = st.tabs(["🗺️  1 · Try a trip", "📊  2 · Results across trips"])
+tab_trip, tab_results = route_tabs()
 
 with tab_trip:
     env = envs[scen_name]
@@ -269,13 +285,27 @@ with tab_trip:
         runs = {}
     if not runs:
         if not chosen:
-            st.info("Choose at least one route planner on the left (step 3).")
+            st.info("Choose a route planner in step 2 of the sidebar.")
     else:
         if setup["mode"] == "custom":
             st.caption("Your scenario is simulated on the same grid for every planner. "
                        "The results below are for this trip only.")
         ref = runs[primary]
-        chips = [f"📦 {len(ref['dests'])} customer{'s' if len(ref['dests']) != 1 else ''}",
+        delivered_at = ref["delivered_at"]
+        delivered = ref["info"].get("n_delivered", len(ref["events"]))
+        total_orders = len(ref["dests"])
+        elapsed = ref["info"].get("elapsed_min", 0.0)
+        on_time = sum(t <= ref["deadlines"][i] for i, t in delivered_at.items())
+        outcome = (f"**{label(primary)}** delivered {delivered}/{total_orders} orders "
+                   f"in {elapsed:.1f} simulated minutes.")
+        if delivered == total_orders and on_time == total_orders:
+            st.success(outcome + " Every order was on time.")
+        elif delivered == total_orders:
+            st.warning(outcome + f" {on_time}/{total_orders} orders were on time.")
+        else:
+            st.warning(outcome + f" The trip ended early; {on_time}/{total_orders} orders were on time.")
+
+        chips = [f"📦 {total_orders} customer{'s' if total_orders != 1 else ''}",
                  f"{TRAFFIC_ICONS[ref['traffic']]} {TRAFFIC[ref['traffic']]} traffic",
                  f"{WEATHER_ICONS[ref['weather']]} {WEATHER[ref['weather']]}"]
         if ref["new_order_step"]:
@@ -283,52 +313,121 @@ with tab_trip:
         st.markdown('<div class="chips">' + "".join(f'<span class="chip">{c}</span>' for c in chips) + "</div>",
                     unsafe_allow_html=True)
 
-        delivered = ref["info"].get("n_delivered", len(ref["events"]))
-        total_orders = len(ref["dests"])
-        elapsed = ref["info"].get("elapsed_min", 0.0)
-        outcome = (f"**{label(primary)}** delivered {delivered}/{total_orders} orders "
-                   f"in {elapsed:.1f} simulated minutes.")
-        if delivered == total_orders:
-            st.success(outcome)
-        else:
-            st.warning(outcome + " The trip ended before every order was delivered.")
+        st.markdown(
+            '<div class="kpi-grid">'
+            + html_kpi("⏱️", "Total trip time", f"{elapsed:.1f} min",
+                       "Until the rider finished or the simulation stopped")
+            + html_kpi("📦", "Orders delivered", f"{delivered}/{total_orders}",
+                       "Customers reached on this trip", "good" if delivered == total_orders else "bad")
+            + html_kpi("✅" if on_time == total_orders else "⚠️", "On time",
+                       f"{on_time}/{total_orders}", "Customer delivery targets met",
+                       "good" if on_time == total_orders else "bad")
+            + html_kpi("🚦", "Traffic jams", str(ref["hot"]),
+                       "Congested grid blocks entered")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
         if compare_all:
             best = max(runs, key=lambda name: runs[name]["reward"])
             st.caption(f"On this trip, {label(best)} earned the highest score "
                        f"({runs[best]['reward']:.1f} points).")
 
-        col_map, col_table = st.columns([1, 1.15], gap="medium")
+        col_map, col_plan = st.columns([2.15, 1], gap="medium")
         with col_map:
-            fig = draw(runs, env.n)
-            st.pyplot(fig)
-            plt.close(fig)
-            st.caption("Red blocks = traffic jams (slower). Blue stars = customers, orange star = order that "
-                       "arrived mid-trip. Each line is one selected planner's route.")
-        with col_table:
-            rows = []
-            for name, r in runs.items():
-                info = r["info"]
-                order = " → ".join(f"#{i + 1}" for _, i in r["events"]) or "none"
-                rows.append({"Planner": label(name),
-                             "Score": round(r["reward"], 1),
-                             "Delivered": f"{info.get('n_delivered', len(r['events']))}/{len(r['dests'])}",
-                             "Trip time (min)": round(info.get("elapsed_min", 0.0), 1),
-                             "Visit order": order,
-                             "Late (min)": round(info.get("late_total", 0.0), 1),
-                             "Jam blocks": r["hot"],
-                             "Steps": info.get("steps")})
-            st.dataframe(pd.DataFrame(rows).set_index("Planner"), width="stretch")
-            with st.expander("What do these numbers mean?"):
+            st.markdown("**Route on the street map**")
+            try:
+                locations = map_order_locations() if setup["mode"] == "dataset" else pd.DataFrame()
+                map_html, map_caption = build_map(runs, primary, setup, locations)
+                components.html(map_html, height=500, scrolling=False)
                 st.markdown(
-                    "- **Score:** +50 per delivery, minus 0.5 per late minute and a small cost for every move, "
-                    "jam block and bad weather; −20 if the trip runs out of time. Higher is better.\n"
-                    "- **Visit order:** which customer was reached first, second, third.\n"
-                    "- **Trip time:** simulated minutes until the rider stops.\n"
-                    "- **Late (min):** total minutes after each customer's expected delivery time.\n"
-                    "- **Jam blocks:** how many congested blocks the rider drove through. Lower is better.\n"
-                    "- The **perfect-knowledge planner** sees the whole traffic map, so it is a best-case "
-                    "reference. The AI only sees nearby traffic."
+                    '<div class="real-sim">'
+                    '<span><span class="tag real">Real</span>Street-map background</span>'
+                    '<span><span class="tag sim">Simulated</span>Grid route, pins, traffic and travel time</span>'
+                    f'<span>ℹ️ {escape(map_caption)}</span></div>',
+                    unsafe_allow_html=True,
                 )
+            except (ValueError, IndexError, KeyError, OSError) as exc:
+                st.warning(f"Street-map view unavailable for this trip: {exc}")
+            with st.expander("See the AI's 10×10 grid"):
+                fig = draw(runs, env.n)
+                st.pyplot(fig)
+                plt.close(fig)
+                st.caption("Red blocks = traffic jams (slower). Blue stars = customers, orange star = "
+                           "an order arriving mid-trip. The model plans on this grid.")
+
+        with col_plan:
+            timeline = [(0.0, 0, "rider", "🛵", "Rider starts",
+                         "Starting orders are already picked up", "")]
+            if ref["new_order_time"] is not None:
+                timeline.append((ref["new_order_time"], 1, "store", "📦", "New order arrives",
+                                 f"Customer {ref['n_initial'] + 1} added during the trip", ""))
+            for step, index in ref["events"]:
+                arrival = delivered_at[index]
+                target = ref["deadlines"][index]
+                is_on_time = arrival <= target
+                pill = '<span class="pill good">On time</span>' if is_on_time else '<span class="pill bad">Late</span>'
+                timeline.append((arrival, 2, "home", "🏠", f"Deliver to customer {index + 1}",
+                                 f"Target by {target:.0f} min · step {step}", pill))
+            timeline.sort(key=lambda item: (item[0], item[1]))
+            stops = []
+            for minute, _, kind, icon, title, detail, pill in timeline:
+                stops.append(
+                    f'<div class="stop"><div class="stop-icon {kind}">{icon}</div><div class="stop-body">'
+                    f'<div class="stop-row"><span class="stop-title">{title}{pill}</span>'
+                    f'<span class="stop-time">{minute:.0f} min</span></div>'
+                    f'<div class="stop-meta">{detail}</div></div></div>'
+                )
+            for index in range(total_orders):
+                if index not in delivered_at:
+                    stops.append(
+                        '<div class="stop"><div class="stop-icon home">⚠️</div><div class="stop-body">'
+                        f'<div class="stop-row"><span class="stop-title">Customer {index + 1} not reached'
+                        '<span class="pill bad">Not delivered</span></span><span class="stop-time">—</span></div>'
+                        f'<div class="stop-meta">Target by {ref["deadlines"][index]:.0f} min</div></div></div>'
+                    )
+            facts = [
+                ("Planner", escape(label(primary))),
+                ("Steps", str(ref["info"].get("steps", len(ref["trail"]) - 1))),
+                ("Score", f"{ref['reward']:.1f} points"),
+            ]
+            facts_html = "".join(
+                f'<div class="fact"><span>{name}</span><span>{value}</span></div>'
+                for name, value in facts
+            )
+            st.markdown(
+                '<div class="panel"><div class="panel-title">Trip plan</div>'
+                '<div class="panel-sub">Stops in order, with simulated minutes since the trip started</div>'
+                f'<div class="stops">{"".join(stops)}</div>'
+                f'<div class="facts">{facts_html}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        with st.expander("Route details and planner scores", expanded=compare_all):
+            rows = []
+            for name, result in runs.items():
+                info = result["info"]
+                visit_order = " → ".join(f"#{i + 1}" for _, i in result["events"]) or "none"
+                rows.append({"Planner": label(name),
+                             "Type": "AI model" if name.startswith("D3QN") else "Reference",
+                             "Score": round(result["reward"], 1),
+                             "Delivered": f"{info.get('n_delivered', len(result['events']))}/{len(result['dests'])}",
+                             "Trip time (min)": round(info.get("elapsed_min", 0.0), 1),
+                             "Visit order": visit_order,
+                             "Late (min)": round(info.get("late_total", 0.0), 1),
+                             "Jam blocks": result["hot"],
+                             "Steps": info.get("steps")})
+            results = pd.DataFrame(rows)
+            if compare_all:
+                for group in ("AI model", "Reference"):
+                    group_rows = results[results["Type"] == group].drop(columns="Type")
+                    if not group_rows.empty:
+                        st.markdown("**AI models**" if group == "AI model" else "**Reference planners**")
+                        st.dataframe(group_rows.set_index("Planner"), width="stretch")
+            else:
+                st.dataframe(results.drop(columns="Type").set_index("Planner"), width="stretch")
+            st.caption("Score uses this multi-order simulator's reward rules. Visit order is the sequence of "
+                       "customers reached; late minutes and jam blocks are lower when the route avoids delays. "
+                       "The perfect-knowledge planner sees the full traffic map as a best-case reference.")
 
 with tab_results:
     st.markdown('<div class="section-title">How the planners do over many test trips</div>'
@@ -346,9 +445,14 @@ with tab_results:
         table = table.rename(columns={"scenario": "Situation", "model": "Planner", "avg_reward": "Avg score",
                                       "on_time_order_rate": "Orders on time", "avg_late_min": "Avg late (min)",
                                       "avg_hotspot_steps": "Avg jam blocks"})
-        st.dataframe(table.round(2), hide_index=True, width="stretch",
-                     column_config={"Orders on time": st.column_config.ProgressColumn(format="percent",
-                                                                                      min_value=0, max_value=1)})
+        for title, matches in (
+            ("AI model · D3QN team", table["Planner"].str.startswith("AI:")),
+            ("Reference planners", ~table["Planner"].str.startswith("AI:")),
+        ):
+            st.markdown(f"**{title}**")
+            st.dataframe(table[matches].round(2), hide_index=True, width="stretch",
+                         column_config={"Orders on time": st.column_config.ProgressColumn(
+                             format="percent", min_value=0, max_value=1)})
     images = [("2000trips_ensemble_comparison.png", "Average score per trip in each situation"),
               ("ensemble_comparison.png", "Average score per trip in each situation"),
               ("error_regret_by_group.png", "Where the AI loses points compared with the perfect-knowledge planner"),

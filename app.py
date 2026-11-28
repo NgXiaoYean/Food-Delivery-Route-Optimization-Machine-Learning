@@ -24,7 +24,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from env import DeliveryEnv, TRAFFIC_MAP, WEATHER_MAP, haversine_km, load_orders
 from shared import split_orders
-from ui_shared import apply_theme, page_hero, sidebar_header, step_head
+from ui_shared import apply_theme, html_kpi, page_hero, route_tabs, sidebar_header, step_head
 from evaluate import (
     greedy_policy,
     make_cross_algorithm_ensemble,
@@ -97,9 +97,9 @@ MODEL_INFO = {
     "Dueling Double DQN (D3QN)": ("Dueling Double DQN (D3QN)", "Adds a dueling network to Double DQN for route decisions around traffic hotspots."),
     "Deep Q-Network (DQN)": ("Deep Q-Network", "Learns which way to move using the destination and nearby traffic."),
     "Tabular Q-Learning": ("Q-Learning", "A fast lookup table learned from thousands of trips."),
-    "Ensemble (QL + DQN + D3QN)": ("Ensemble (all models)", "Combines the votes of Q-Learning, DQN and Dueling Double DQN."),
+    "Ensemble (QL + DQN + D3QN)": ("Ensemble (Q-Learning + DQN + D3QN)", "Combines the votes of Q-Learning, DQN and D3QN."),
     "Direct Route (Baseline)": ("Direct route", "Heads straight for the customer and ignores traffic."),
-    "Shortest-Time Planner (Dijkstra)": ("Shortest-path planner", "Classic map search that sees all traffic in advance."),
+    "Shortest-Time Planner (Dijkstra)": ("Fastest-time planner (full map)", "Classic map search that sees all traffic in advance."),
     "Random Baseline": ("Random moves", "Moves randomly. Used as a sanity check."),
 }
 
@@ -119,13 +119,6 @@ st.set_page_config(
 )
 
 apply_theme()
-
-
-def html_kpi(icon: str, label: str, value: str, sub: str = "", tone: str = "", text: bool = False) -> str:
-    return (
-        f'<div class="kpi"><div class="kpi-label"><span>{icon}</span>{label}</div>'
-        f'<div class="kpi-value{" text" if text else ""}">{value}</div><div class="kpi-sub {tone}">{sub}</div></div>'
-    )
 
 
 def bar_chart(df: pd.DataFrame, value_col: str, color: str, fmt: str, ascending: bool):
@@ -758,6 +751,7 @@ def build_route_map(
         zoom_start=13,
         tiles=None,
         control_scale=True,
+        scrollWheelZoom=False,
     )
     if tile_style == "Standard (OpenStreetMap)":
         folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
@@ -1117,7 +1111,7 @@ TRIP_PRESETS = {
 
 
 # ==============================================================================
-# SIDEBAR: page switcher, then two numbered choices (order, route planner)
+# SIDEBAR: two numbered choices (order, route planner)
 # ==============================================================================
 with st.sidebar:
     sidebar_header("app.py")
@@ -1126,11 +1120,11 @@ with st.sidebar:
     step_head(1, "Choose an order")
     order_source = st.segmented_control(
         "Where the order comes from",
-        options=["Real order", "Make my own"],
-        default="Real order",
+        options=["From dataset", "Make my own"],
+        default="From dataset",
         label_visibility="collapsed",
-        help="Real order: a delivery from the Zomato dataset. Make my own: set traffic, weather and distance yourself.",
-    ) or "Real order"
+        help="From dataset: choose a recorded order. Make my own: set traffic, weather and distance yourself.",
+    ) or "From dataset"
     use_custom = order_source == "Make my own"
 
     if not use_custom:
@@ -1216,31 +1210,28 @@ with st.sidebar:
 
     # ---- Step 2: Model ----
     step_head(2, "Choose a route planner")
-    policy_names = list(all_policies.keys())
+    learned_models = ("Deep Q-Network (DQN)", "Double DQN", "Dueling Double DQN (D3QN)", "Tabular Q-Learning")
+    policy_names = [name for name in all_policies if name in learned_models]
+    if not policy_names:
+        policy_names = ["Shortest-Time Planner (Dijkstra)"]
     primary_model = st.selectbox(
-        "Routing model",
+        "Route planner",
         options=policy_names,
         index=0,
         format_func=model_label,
     )
     st.markdown(f'<div class="model-hint">{model_desc(primary_model)}</div>', unsafe_allow_html=True)
+    st.caption("This choice changes the route in **Try a route**. **Compare results** shows the five Part A algorithms.")
     if TORCH_AVAILABLE and "Dueling Double DQN (D3QN)" not in policy_names:
         st.caption(
             "Single-delivery D3QN is unavailable because its trained model is missing here. "
             "The several-delivery D3QN uses a separate model on its own page."
         )
-    with st.expander("More options: compare routes, map style"):
+    with st.expander("Map options"):
         show_baseline = st.toggle(
             "Show the direct route for comparison",
             value=False,
             help="Draw a grey route that ignores traffic beside the chosen route.",
-        )
-        extra_models = st.multiselect(
-            "Also show these models",
-            options=[p for p in policy_names if p not in (primary_model, "Direct Route (Baseline)")],
-            default=[],
-            format_func=model_label,
-            placeholder="Choose models...",
         )
         tile_style = st.selectbox(
             "Map style",
@@ -1253,7 +1244,7 @@ with st.sidebar:
     # This page plans exactly one delivery. Several customers are handled by the
     # trained multi-order model on the "Several deliveries" page instead.
     n_choice, match_dataset, diff_restaurants, include_pickup_leg = 1, False, True, False
-    st.caption("Have more than one customer? Switch to **Several deliveries** at the top.")
+    st.caption("Have more than one customer? Choose **Several deliveries** in the sidebar.")
 
     if not TORCH_AVAILABLE:
         st.caption("PyTorch is not installed, so only Q-Learning and the baseline models are available.")
@@ -1263,17 +1254,13 @@ with st.sidebar:
 # ==============================================================================
 page_hero(
     "One delivery · Reinforcement learning",
-    "Plan a delivery",
-    "See how an AI route planner takes a rider from the restaurant to the customer while avoiding traffic. "
-    "Everything updates as soon as you change a choice on the left.",
-    ["Choose an order", "Choose a route planner", "Read the map and results below"],
+    "Plan one delivery",
+    "Choose an order and route planner, then see the map and compare results across test orders.",
+    ["Choose an order", "Choose a route planner", "See the route and results"],
 )
 st.write("")
 
-tab_map, tab_compare = st.tabs([
-    "🗺️  1 · Try one delivery",
-    "📊  2 · Compare all planners",
-])
+tab_map, tab_compare = route_tabs()
 
 # ------------------------------------------------------------------------------
 # TAB 1: PLAN A ROUTE
@@ -1289,10 +1276,6 @@ with tab_map:
     active_models = [primary_model]
     if show_baseline and "Direct Route (Baseline)" in all_policies and primary_model != "Direct Route (Baseline)":
         active_models.append("Direct Route (Baseline)")
-    for m_name in extra_models:
-        if m_name not in active_models:
-            active_models.append(m_name)
-
     with st.spinner("Planning the route..."):
         sims = {
             name: simulate_single_episode(all_policies[name], test_orders, int(selected_seed), custom_cfg)
@@ -1330,10 +1313,14 @@ with tab_map:
         )
     elif primary_sim["delivered"]:
         arrival = "on time" if primary_sim["sla_compliant"] else "after the 45-minute target"
-        st.success(
+        message = (
             f"{model_label(primary_model)} reaches the customer {arrival} "
             f"in {primary_sim['minutes']:.1f} minutes. Its route is shown on the map below."
         )
+        if primary_sim["sla_compliant"]:
+            st.success(message)
+        else:
+            st.warning(message)
     else:
         st.warning(
             f"{model_label(primary_model)} did not reach the customer within the step limit "
@@ -1429,7 +1416,7 @@ with tab_map:
             diff_restaurants=diff_restaurants,
             rider_start=pick_rider_start(order_meta, test_meta),
         )
-        components.html(fmap.get_root().render(), height=540)
+        components.html(fmap.get_root().render(), height=500)
         st.markdown(
             '<div class="real-sim">'
             '<span><span class="tag real">Real</span>Sample restaurant and customer locations</span>'
@@ -1514,169 +1501,388 @@ with tab_map:
                 hide_index=True,
             )
 
-    with st.expander("Explore the AI grid and watch DQN learn", expanded=False):
-        st.caption(
-            "The models learn on a simplified 10×10 grid of city blocks. Red cells are traffic jams, "
-            "R is the restaurant and C is the customer."
-        )
-        g_cols = st.columns(min(len(sims), 3))
-        for idx, (m_name, sim) in enumerate(sims.items()):
-            with g_cols[idx % len(g_cols)]:
-                fig = draw_grid_diagnostic(sim, model_label(m_name))
-                st.pyplot(fig)
-                plt.close(fig)
-        st.caption(
-            f"Moves taken by {model_label(primary_model)} ({primary_sim['steps']} steps, reward {primary_sim['reward']}):"
-        )
-        st.code(" → ".join(primary_sim["actions"]) or "Already at destination", language="text")
-        if TORCH_AVAILABLE:
-            st.markdown("**Watch a DQN learn on this grid**")
-            st.caption(
-                "Train a small DQN on the displayed restaurant, customer and traffic cells. "
-                "Choose a training stage, then play or step through the rider's route and reward feedback. "
-                "This teaching demo trains in memory and is separate from the evaluated DQN above."
-            )
-            demo_key = (
-                tuple(primary_sim["start"]), tuple(primary_sim["dest"]),
-                tuple(tuple(map(int, cell)) for cell in np.argwhere(primary_sim["env"].hotspots)),
-            )
-            if st.button("Train DQN learning demo", key="train_dqn_learning_demo"):
-                from dqn.learning_demo import train_demo
-                with st.spinner("Training demo DQN on this grid..."):
-                    st.session_state["dqn_learning_demo"] = (
-                        demo_key, train_demo(*demo_key)
-                    )
-            saved_demo = st.session_state.get("dqn_learning_demo")
-            if saved_demo and saved_demo[0] == demo_key:
-                from dqn.learning_demo import animation_html
-                components.html(animation_html(saved_demo[1]), height=650)
 
 # ------------------------------------------------------------------------------
 # TAB 2: COMPARE MODELS
 # ------------------------------------------------------------------------------
 with tab_compare:
     section(
-        "Compare route planners fairly",
-        "First compare them on your selected delivery. Then see how often they succeed across many deliveries.",
+        "Compare five AI algorithms",
+        "The main study compares Q-Learning, DQN, Double DQN, Dueling DQN and D3QN.",
     )
-    st.info(
-        "All planners get the same restaurant, customer, traffic, weather and jam locations "
-        "within each comparison. Their chosen moves may differ. The map is a visual illustration; "
-        "times come from the shared 10×10 delivery simulator, not from live road traffic."
+    st.caption(
+        "All five use the same controlled Part A evaluation. The reference routes and optional "
+        "historical app benchmarks are separate from this five-model comparison. "
+        "Times are simulated, not live traffic."
     )
     st.page_link(
         "pages/3_Data_and_Experiments.py",
-        label="See the controlled five-model study (Q-Learning and four DQN variants)",
+        label="See training, data preparation and the full Part A results",
         icon="🔬",
     )
 
-    section(
-        "1 · What happens on the delivery you chose?",
-        "Change the order or custom scenario in the sidebar to see how every available planner responds.",
-    )
-    single_sims = {
-        name: sims.get(name) or simulate_single_episode(policy, test_orders, int(selected_seed), custom_cfg)
-        for name, policy in all_policies.items()
-    }
-    single_rows = []
-    for name, sim in single_sims.items():
-        result = "Not delivered"
-        if sim["delivered"]:
-            result = "On time" if sim["sla_compliant"] else "Late"
-        single_rows.append({
-            "Planner": model_label(name),
-            "Result": result,
-            "Simulated time (min)": sim["minutes"],
-            "Moves": sim["steps"],
-            "Jam cells entered": sim["hotspot_hits"],
-            "Selected": "✓" if name == primary_model else "",
-        })
-    single_df = pd.DataFrame(single_rows)
-    st.dataframe(single_df, use_container_width=True, hide_index=True)
-    delivered_here = single_df[single_df["Result"] != "Not delivered"]
-    if not delivered_here.empty:
-        quickest_here = delivered_here.sort_values("Simulated time (min)").iloc[0]
+    st.markdown("### Part A: five learned models on the same delivery")
+    with st.container(border=True):
+        from compare.learning_view import (catalog as demo_catalog, fastest_time_policy,
+                                           grid_svg, learning_history, load_policy, replay,
+                                           shortest_distance_policy, validation_progress)
+        from compare.route_animation import animation_html
+
         st.caption(
-            f"On this one simulated delivery, {quickest_here['Planner']} is the quickest planner "
-            f"that reaches the customer ({quickest_here['Simulated time (min)']:.1f} min). "
-            "One delivery alone cannot show which planner is best overall."
+            "All routes below use the same selected restaurant, customer, traffic, weather, "
+            "jam cells and 60-move delivery simulator. Red cells slow the rider; they are not walls. "
+            "These are the controlled Part A checkpoints, which may differ from the historical "
+            "checkpoint used on the Try a route map or in the optional historical app tests."
         )
-    st.caption(
-        f"On time = delivered within {SLA_LIMIT_MIN:.0f} simulated minutes. "
-        "A planner that does not arrive before the move limit is marked 'Not delivered', "
-        "even though the simulator has counted its travel time."
-    )
-    if st.toggle("Show every planner's route on the same grid", value=False):
-        st.caption("R = restaurant, C = customer, red cells = traffic jams. Each diagram uses the same scenario.")
-        route_cols = st.columns(3)
-        for idx, (name, sim) in enumerate(single_sims.items()):
-            with route_cols[idx % 3]:
-                fig = draw_grid_diagnostic(sim, model_label(name))
-                st.pyplot(fig)
-                plt.close(fig)
+        record = demo_catalog()
+        if not record:
+            st.info("No exported Part A checkpoints are available for the AI grid.")
+        else:
+            summary_path = BASE_DIR / "compare" / "part_a_summary.json"
+            part_a_summary = (json.loads(summary_path.read_text(encoding="utf-8"))
+                              if summary_path.is_file() else {})
+            same_run = (part_a_summary.get("source_run") == record.get("source_run")
+                        and part_a_summary.get("data_sha256") == record.get("data_sha256"))
+            comparison = (part_a_summary.get("comparison", []) if same_run else [])
+            winner = part_a_summary.get("validation_winner") if same_run else None
 
-    section(
-        "2 · Do the results hold across many deliveries?",
-        "The test below uses the same seeded scenarios for every planner, sampled from the held-out order split. "
-        "It does not use the custom scenario selected above.",
-    )
+            @st.cache_resource(show_spinner=False)
+            def demo_policy(model_name, filename, file_mtime_ns):
+                return load_policy(model_name, {"file": filename})
 
-    n_val_eps = st.segmented_control(
-        "Number of test deliveries",
-        options=[100, 250, 500],
-        default=100,
-        format_func=lambda n: f"{n} orders",
-        help="More orders give more reliable results but take longer to compute.",
-    ) or 100
+            def cached_demo_policy(model_name, stage):
+                path = BASE_DIR / "compare" / "checkpoints" / stage["file"]
+                return demo_policy(model_name, stage["file"], path.stat().st_mtime_ns)
 
-    with st.spinner(f"Testing every model on {n_val_eps} orders..."):
-        val_df = run_validation_benchmark(int(n_val_eps))
+            routes, unavailable = {}, []
+            for model_name, details in record["models"].items():
+                best_stage = details["stages"][0]
+                try:
+                    policy = cached_demo_policy(model_name, best_stage)
+                    routes[model_name] = replay(policy, test_orders, primary_sim)
+                except (ImportError, FileNotFoundError, ValueError, RuntimeError) as exc:
+                    unavailable.append(f"{model_name}: {exc}")
 
-    val_num = val_df.copy()
-    val_num["On-time rate (%)"] = val_num["SLA Adherence (<=45m)"].str.rstrip("%").astype(float)
-    val_num["Delivered (%)"] = val_num["Delivery Rate"].str.rstrip("%").astype(float)
-    val_num["Model"] = val_num["Algorithm"].map(model_label)
+            st.markdown("**AI grid · best validated checkpoint for each algorithm**")
+            if winner:
+                st.success(f"🏆 **Part A validation winner: {winner}**")
+                st.caption(
+                    "Chosen across five training seeds by delivery success, then on-time rate, "
+                    "then reward on validation orders. The grid below is one example, so several "
+                    "models may look equally good on this delivery."
+                )
+            if comparison:
+                st.markdown("**Results across test deliveries**")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "Model": row["model"] + (" 🏆" if row["model"] == winner else ""),
+                        "Delivered": f'{row["delivered_pct"]:.1f}%',
+                        "On time": f'{row["on_time_pct"]:.1f}%',
+                        "Average delivery": f'{row["completed_trip_min"]:.1f} min',
+                    } for row in comparison]),
+                    hide_index=True, width="stretch",
+                )
+                st.caption(
+                    "Recorded test results average five seeds; delivery time includes completed trips only. "
+                    "Dueling DQN and D3QN are nearly tied here, so the winner is specific to this run."
+                )
+            if unavailable:
+                st.info("Unavailable here: " + "; ".join(unavailable))
+            if routes:
+                ordered_routes = [name for name in
+                                  ("Q-Learning", "DQN", "Double DQN", "Dueling DQN", "D3QN")
+                                  if name in routes]
+                cards = st.columns(min(3, len(ordered_routes)), gap="small")
+                for index, model_name in enumerate(ordered_routes):
+                    route = routes[model_name]
+                    details = record["models"][model_name]
+                    stage = details["stages"][0]
+                    status = "Delivered" if route["delivered"] else "Not delivered"
+                    is_winner = model_name == winner
+                    with cards[index % len(cards)]:
+                        st.markdown(
+                            f'<div style="border:2px solid {"#16a34a" if is_winner else "#e2e8f0"};border-radius:10px;'
+                            'padding:10px;margin-bottom:10px;min-height:420px">'
+                            f'<div style="font-weight:700;font-size:14px;min-height:38px">'
+                            f'{model_name}{" · 🏆 validation winner" if is_winner else ""}</div>'
+                            + grid_svg(route)
+                            + '<div style="font-size:12px;line-height:1.65;margin-top:8px">'
+                            f'<b>Best checkpoint:</b> after {stage["episode"]:,} completed episodes · seed {stage["training_seed"]}<br>'
+                            f'<b>Total training:</b> {details["total_completed_episodes"]:,} completed episodes · '
+                            f'{record["train_steps"]:,} steps<br>'
+                            f'<b>Route:</b> {route["steps"]} steps · minimum {route["min_steps"]}<br>'
+                            f'<b>Time:</b> {route["minutes"]:.1f} simulated min · <b>reward:</b> {route["reward"]:.1f}<br>'
+                            f'<b>Status:</b> {status} · <b>step efficiency:</b> {route["efficiency_pct"]:.1f}%'
+                            '</div></div>', unsafe_allow_html=True)
+                has_milestones = any(stage["kind"] == "milestone"
+                                     for details in record["models"].values()
+                                     for stage in details["stages"])
+                st.caption(
+                    "Best means highest validation delivery rate, then on-time rate, then reward "
+                    "among saved checkpoints. "
+                    + ("This run contains separately evaluated episode milestones. "
+                       if has_milestones else
+                       "This run saved final weights only, so best and final currently use the same file. ")
+                    + "Rewards here share one environment and scale. Step efficiency is minimum "
+                    "steps divided by actual steps for completed routes; it does not measure speed. "
+                    "The Data & experiments study summarizes final checkpoints across five seeds."
+                )
 
-    best_ontime = val_num.sort_values(["On-time rate (%)", "Avg Duration (min)"], ascending=[False, True]).iloc[0]
-    delivered = val_num[val_num["Delivered (%)"] >= 99.0]
-    fastest = (delivered if not delivered.empty else val_num).sort_values("Avg Duration (min)").iloc[0]
-    quickest_cpu = val_num.sort_values("Compute Time (ms/order)").iloc[0]
+            shortest = replay(shortest_distance_policy, test_orders, primary_sim)
+            fastest = replay(fastest_time_policy, test_orders, primary_sim)
+            st.caption(
+                f"Benchmarks on this grid: minimum distance = {shortest['min_steps']} steps "
+                f"({shortest['minutes']:.1f} min on the direct route); fastest simulated time "
+                f"with full jam-map knowledge = {fastest['minutes']:.1f} min "
+                f"in {fastest['steps']} steps. A fastest-time route may take more steps."
+            )
+            if st.toggle("Show benchmark routes", value=False, key="show_ai_benchmarks"):
+                baseline_cols = st.columns(2)
+                for col, label, route in zip(
+                    baseline_cols,
+                    ("Minimum distance", "Fastest simulated time (full map knowledge)"),
+                    (shortest, fastest),
+                ):
+                    with col:
+                        st.markdown(
+                            '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px">'
+                            f'<div style="font-weight:700;font-size:14px;min-height:38px">{label}</div>'
+                            + grid_svg(route)
+                            + f'<div style="font-size:12px;margin-top:8px">{route["steps"]} steps · '
+                              f'{route["minutes"]:.1f} simulated min</div></div>',
+                            unsafe_allow_html=True,
+                        )
 
-    st.markdown(
-        '<div class="kpi-grid">'
-        + html_kpi("🏆", "Most on-time", best_ontime["Model"],
-                   f"{best_ontime['On-time rate (%)']:.0f}% of orders within {SLA_LIMIT_MIN:.0f} min", "good", text=True)
-        + html_kpi("⏱️", "Shortest trips", fastest["Model"],
-                   f"{fastest['Avg Duration (min)']:.1f} min on average", text=True)
-        + html_kpi("⚙️", "Fastest to compute", quickest_cpu["Model"],
-                   f"{quickest_cpu['Compute Time (ms/order)']:.2f} ms per order", text=True)
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+            with st.expander("Learning Demo · watch real checkpoints", expanded=False):
+                st.markdown("**Learning demo · replay a real checkpoint**")
+                if routes:
+                    chosen_model = st.selectbox("Algorithm", list(routes), key="learning_algorithm")
+                    stages = [stage for stage in record["models"][chosen_model]["stages"]
+                              if (BASE_DIR / "compare" / "checkpoints" / stage["file"]).is_file()]
+                    stages.sort(key=lambda stage: (0 if stage["kind"] == "milestone" else
+                                                   1 if stage["kind"] == "best" else 2,
+                                                   stage["episode"]))
+                    chosen_stage = st.selectbox(
+                        "Available training stage", stages, key=f"learning_stage_{chosen_model}",
+                        format_func=lambda stage: f'{stage["label"]} ({stage["episode"]:,} completed episodes)',
+                    )
+                    if chosen_stage:
+                        selected_policy = cached_demo_policy(chosen_model, chosen_stage)
+                        selected_route = replay(selected_policy, test_orders, primary_sim)
+                        components.html(animation_html(chosen_model, chosen_stage, selected_route),
+                                        height=480, scrolling=True)
+                    st.caption(
+                        "Only genuine saved stages are selectable. SARSA is not offered because this "
+                        "project has no SARSA model or checkpoint. "
+                        + ("The earlier 0/50/100/150/200/300-episode weights were not saved in this "
+                           "run; an instrumented training run is needed."
+                           if not has_milestones else
+                           "Checkpoint evaluations show whether more episodes helped on validation trips.")
+                    )
 
-    ch1, ch2 = st.columns(2, gap="medium")
-    with ch1:
-        st.markdown("**On-time rate (%)**")
-        st.altair_chart(bar_chart(val_num, "On-time rate (%)", "#EA580C", ".0f", False), use_container_width=True)
-    with ch2:
-        st.markdown("**Average trip time (min)**")
-        st.altair_chart(bar_chart(val_num, "Avg Duration (min)", "#2563EB", ".1f", True), use_container_width=True)
+                    best_episode = record["models"][chosen_model]["stages"][0]["episode"]
+                    history = learning_history()
+                    history = history[(history["model"] == chosen_model) &
+                                      (history["training_seed"] ==
+                                       record["models"][chosen_model]["selected_seed"])]
+                    if not history.empty:
+                        st.markdown("**Recorded training progress**")
+                        st.caption(
+                            "Recent averages over up to 100 training deliveries; these are not validation "
+                            "results. More episodes do not guarantee a better route, so checkpoint "
+                            "selection uses validation trips instead."
+                        )
+                        marker = alt.Chart(pd.DataFrame({"episodes": [best_episode]})).mark_rule(
+                            color="#ea580c", strokeDash=[4, 3]).encode(x="episodes:Q")
+                        ch_reward, ch_success = st.columns(2)
+                        with ch_reward:
+                            reward_plot = alt.Chart(history).mark_line(color="#2563eb").encode(
+                                x=alt.X("episodes:Q", title="Completed training episodes"),
+                                y=alt.Y("mean_recent_reward:Q", title="Recent average reward"))
+                            st.altair_chart(reward_plot + marker, width="stretch")
+                        with ch_success:
+                            success_plot = alt.Chart(history).mark_line(color="#15803d").encode(
+                                x=alt.X("episodes:Q", title="Completed training episodes"),
+                                y=alt.Y("recent_success:Q", title="Recent delivery success", axis=alt.Axis(format="%")))
+                            st.altair_chart(success_plot + marker, width="stretch")
+                    measured = validation_progress()
+                    measured = measured[(measured["model"] == chosen_model) &
+                                        (measured["training_seed"] ==
+                                         record["models"][chosen_model]["selected_seed"])].sort_values("episode")
+                    validation = record["models"][chosen_model]["validation"]
+                    st.caption(
+                        f"Final-checkpoint validation: {validation['delivered']:.1%} delivered · "
+                        f"{validation['elapsed_min']:.1f} average simulated minutes · "
+                        f"{validation['steps']:.1f} average steps. "
+                        + ("The orange line marks the selected best checkpoint episode."
+                           if len(measured) > 1 else
+                           "Earlier validation time and steps were not recorded in this run; "
+                           "the orange line marks the final checkpoint episode.")
+                    )
+                    if len(measured) > 1:
+                        st.markdown("**Validation at saved checkpoints**")
+                        st.caption(
+                            "Each point uses the same validation deliveries. Orange marks the selected "
+                            "best checkpoint. Delivery time includes successful trips only, so read it "
+                            "together with the success-rate graph."
+                        )
+                        best_line = alt.Chart(pd.DataFrame({"episode": [best_episode]})).mark_rule(
+                            color="#ea580c", strokeDash=[4, 3]).encode(x="episode:Q")
+                        metric_specs = (
+                            ("reward", "Average reward", "#2563eb"),
+                            ("delivered", "Delivery success", "#15803d"),
+                            ("delivery_min", "Completed-delivery time (min)", "#7c3aed"),
+                            ("steps", "Average steps", "#d97706"),
+                        )
+                        for left, right in ((0, 1), (2, 3)):
+                            pair = st.columns(2)
+                            for col, index in zip(pair, (left, right)):
+                                field, title, color = metric_specs[index]
+                                with col:
+                                    line = alt.Chart(measured).mark_line(point=True, color=color).encode(
+                                        x=alt.X("episode:Q", title="Completed training episodes"),
+                                        y=alt.Y(f"{field}:Q", title=title))
+                                    st.altair_chart(line + best_line, width="stretch")
 
-    with st.expander("See the full results table"):
-        st.dataframe(val_df.assign(Algorithm=val_df["Algorithm"].map(model_label)), use_container_width=True, hide_index=True)
+    st.divider()
+    if st.toggle("Explore extra planner benchmarks (optional)", value=False, key="show_extra_planner_benchmarks"):
+        st.caption(
+            "These older app policies use different checkpoints from the controlled Part A study. "
+            "Standalone Dueling DQN appears in the five-model study above, but is not wired to "
+            "the historical map policy. Ensemble and reference planners are shown separately."
+        )
+        section(
+            "1 · What happens on the delivery you chose?",
+            "This optional app study uses different saved checkpoints from the five-model Part A comparison.",
+        )
+        single_sims = {
+            name: sims.get(name) or simulate_single_episode(policy, test_orders, int(selected_seed), custom_cfg)
+            for name, policy in all_policies.items()
+        }
+        single_rows = []
+        for name, sim in single_sims.items():
+            result = "Not delivered"
+            if sim["delivered"]:
+                result = "On time" if sim["sla_compliant"] else "Late"
+            single_rows.append({
+                "Planner": model_label(name),
+                "Type": ("Learned AI" if name in learned_models else
+                         "Ensemble" if name.startswith("Ensemble") else "Reference"),
+                "Result": result,
+                "Simulated time (min)": sim["minutes"],
+                "Moves": sim["steps"],
+                "Jam cells entered": sim["hotspot_hits"],
+                "Selected": "✓" if name == primary_model else "",
+            })
+        single_df = pd.DataFrame(single_rows)
+        st.markdown("**Learned AI policies available on the map**")
+        st.dataframe(
+            single_df[single_df["Type"] == "Learned AI"].drop(columns="Type"),
+            use_container_width=True, hide_index=True,
+        )
+        st.markdown("**Ensemble and reference planners**")
+        st.dataframe(
+            single_df[single_df["Type"] != "Learned AI"],
+            use_container_width=True, hide_index=True,
+        )
+        delivered_here = single_df[single_df["Result"] != "Not delivered"]
+        if not delivered_here.empty:
+            quickest_here = delivered_here.sort_values("Simulated time (min)").iloc[0]
+            st.caption(
+                f"In this optional planner study, {quickest_here['Planner']} is the quickest option "
+                f"that reaches the customer ({quickest_here['Simulated time (min)']:.1f} min). "
+                "One delivery alone cannot show which planner is best overall."
+            )
+        st.caption(
+            f"On time = delivered within {SLA_LIMIT_MIN:.0f} simulated minutes. "
+            "A planner that does not arrive before the move limit is marked 'Not delivered', "
+            "even though the simulator has counted its travel time."
+        )
+        if st.toggle("Show every planner's route on the same grid", value=False):
+            st.caption("R = restaurant, C = customer, red cells = traffic jams. Each diagram uses the same scenario.")
+            route_cols = st.columns(3)
+            for idx, (name, sim) in enumerate(single_sims.items()):
+                with route_cols[idx % 3]:
+                    fig = draw_grid_diagnostic(sim, model_label(name))
+                    st.pyplot(fig)
+                    plt.close(fig)
 
-    st.caption(
-        "Read delivery rate together with trip time: a short unfinished route is not a successful delivery. "
-        "These are simulated times, not predictions of actual road travel."
-    )
+        section(
+            "2 · Do the results hold across many deliveries?",
+            "The test below uses the same seeded scenarios for every planner, sampled from the held-out order split. "
+            "Charts compare learned AI policies only; the full tables separate ensemble and references. "
+            "This test does not use the custom scenario selected above.",
+        )
 
-    with st.expander("What do these results mean?"):
+        n_val_eps = st.segmented_control(
+            "Number of test deliveries",
+            options=[100, 250, 500],
+            default=100,
+            format_func=lambda n: f"{n} orders",
+            help="More orders give more reliable results but take longer to compute.",
+        ) or 100
+
+        with st.spinner(f"Testing every model on {n_val_eps} orders..."):
+            val_df = run_validation_benchmark(int(n_val_eps))
+
+        val_num = val_df[val_df["Algorithm"].isin(learned_models)].copy()
+        val_num["On-time rate (%)"] = val_num["SLA Adherence (<=45m)"].str.rstrip("%").astype(float)
+        val_num["Delivered (%)"] = val_num["Delivery Rate"].str.rstrip("%").astype(float)
+        val_num["Model"] = val_num["Algorithm"].map(model_label)
+
+        best_ontime = val_num.sort_values(["On-time rate (%)", "Avg Duration (min)"], ascending=[False, True]).iloc[0]
+        delivered = val_num[val_num["Delivered (%)"] >= 99.0]
+        fastest = (delivered if not delivered.empty else val_num).sort_values("Avg Duration (min)").iloc[0]
+        quickest_cpu = val_num.sort_values("Compute Time (ms/order)").iloc[0]
+
         st.markdown(
-            "- **Delivered:** percentage of routes that reached the customer before the move limit.\n"
-            "- **On time:** percentage of all routes that arrived within the 45-minute simulated target.\n"
-            "- **Average trip time:** simulated minutes across all attempts, including attempts that did not finish. "
-            "Check delivery rate before treating a low time as a good result.\n"
-            "- **Direct route:** a simple baseline that heads toward the customer. "
-            "**Shortest-path planner:** a search method that can see the current jam map. "
-            "**Q-Learning, DQN, Double DQN and Dueling Double DQN:** learned policies."
+            '<div class="kpi-grid">'
+            + html_kpi("🏆", "Most on-time", best_ontime["Model"],
+                       f"{best_ontime['On-time rate (%)']:.0f}% of orders within {SLA_LIMIT_MIN:.0f} min", "good", text=True)
+            + html_kpi("⏱️", "Shortest trips", fastest["Model"],
+                       f"{fastest['Avg Duration (min)']:.1f} min on average", text=True)
+            + html_kpi("⚙️", "Fastest to compute", quickest_cpu["Model"],
+                       f"{quickest_cpu['Compute Time (ms/order)']:.2f} ms per order", text=True)
+            + "</div>",
+            unsafe_allow_html=True,
         )
+
+        ch1, ch2 = st.columns(2, gap="medium")
+        with ch1:
+            st.markdown("**On-time rate (%)**")
+            st.altair_chart(bar_chart(val_num, "On-time rate (%)", "#EA580C", ".0f", False), use_container_width=True)
+        with ch2:
+            st.markdown("**Average trip time (min)**")
+            st.altair_chart(bar_chart(val_num, "Avg Duration (min)", "#2563EB", ".1f", True), use_container_width=True)
+
+        with st.expander("See the full results tables"):
+            st.markdown("**Learned AI policies available on the map**")
+            st.dataframe(
+                val_df[val_df["Algorithm"].isin(learned_models)].assign(
+                    Algorithm=lambda frame: frame["Algorithm"].map(model_label)
+                ),
+                use_container_width=True, hide_index=True,
+            )
+            st.markdown("**Ensemble and reference planners**")
+            st.dataframe(
+                val_df[~val_df["Algorithm"].isin(learned_models)].assign(
+                    Algorithm=lambda frame: frame["Algorithm"].map(model_label)
+                ),
+                use_container_width=True, hide_index=True,
+            )
+
+        st.caption(
+            "Read delivery rate together with trip time: a short unfinished route is not a successful delivery. "
+            "These are simulated times, not predictions of actual road travel."
+        )
+
+        with st.expander("What do these results mean?"):
+            st.markdown(
+                "- **Delivered:** percentage of routes that reached the customer before the move limit.\n"
+                "- **On time:** percentage of all routes that arrived within the 45-minute simulated target.\n"
+                "- **Average trip time:** simulated minutes across all attempts, including attempts that did not finish. "
+                "Check delivery rate before treating a low time as a good result.\n"
+                "- **Direct route:** a simple baseline that heads toward the customer. "
+                "**Fastest-time planner:** a search method that can see the current jam map. "
+                "**Q-Learning, DQN, Double DQN and Dueling Double DQN:** learned policies."
+            )

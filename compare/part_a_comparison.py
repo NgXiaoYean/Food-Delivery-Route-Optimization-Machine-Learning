@@ -11,6 +11,8 @@ target-copy schedule. Q-Learning uses its own tabular state and update rule.
 These are new controlled runs, not the historical app checkpoints.
 """
 import argparse
+import copy
+import csv
 import json
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
@@ -88,7 +90,7 @@ def make_env(orders, scale, map_seed):
     return env
 
 
-def train_one(orders, scale, name, seed, settings):
+def train_one(orders, scale, name, seed, settings, on_stage=None):
     double, dueling = VARIANTS[name]
     random.seed(seed)
     np.random.seed(seed)
@@ -106,6 +108,9 @@ def train_one(orders, scale, name, seed, settings):
     recent_rewards, recent_success, history = [], [], []
     episode_reward = 0.0
     updates = 0
+
+    if on_stage is not None:
+        on_stage(0, 0, online)
 
     for step in range(1, settings.train_steps + 1):
         fraction = min(1.0, (step - 1) / settings.epsilon_decay_steps)
@@ -149,6 +154,8 @@ def train_one(orders, scale, name, seed, settings):
             recent_rewards.append(episode_reward)
             recent_success.append(float(info["delivered"]))
             episode += 1
+            if on_stage is not None:
+                on_stage(episode, step, online)
             episode_reward = 0.0
             observation, _ = env.reset(seed=seed * 1_000_000 + episode)
             state = features_v3(observation, env)
@@ -162,7 +169,7 @@ def train_one(orders, scale, name, seed, settings):
     return online, history
 
 
-def train_tabular(orders, scale, seed, settings):
+def train_tabular(orders, scale, seed, settings, on_stage=None):
     """Give the team's refined Q-Learning implementation the same step budget."""
     random.seed(seed)
     np.random.seed(seed)
@@ -174,6 +181,9 @@ def train_tabular(orders, scale, seed, settings):
     env.reset(seed=seed * 1_000_000 + episode)
     recent_rewards, recent_success, history = [], [], []
     episode_reward = 0.0
+
+    if on_stage is not None:
+        on_stage(0, 0, agent)
 
     for step in range(1, settings.train_steps + 1):
         fraction = min(1.0, (step - 1) / settings.epsilon_decay_steps)
@@ -189,6 +199,8 @@ def train_tabular(orders, scale, seed, settings):
             recent_rewards.append(episode_reward)
             recent_success.append(float(info["delivered"]))
             episode += 1
+            if on_stage is not None:
+                on_stage(episode, step, agent)
             episode_reward = 0.0
             env.reset(seed=seed * 1_000_000 + episode)
         if step % 1_000 == 0 or step == settings.train_steps:
@@ -278,12 +290,18 @@ def parse_args(argv=None):
     parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--validation-only", action="store_true")
+    parser.add_argument("--record-stages", action="store_true",
+                        help="Save real episode milestones and validation metrics for the learning demo")
+    parser.add_argument("--stage-episodes", type=int, nargs="+", default=[0, 50, 100, 150, 200, 300],
+                        help="Completed-episode milestones; used only with --record-stages")
     parser.add_argument("--smoke", action="store_true", help="Tiny validation-only wiring check, not evidence")
     args = parser.parse_args(argv)
     if args.train_steps < 1 or args.eval_episodes < 1 or args.threads < 1:
         parser.error("train-steps, eval-episodes and threads must be positive")
     if not args.seeds or min(args.seeds) < 0 or len(set(args.seeds)) != len(args.seeds):
         parser.error("seeds must be distinct non-negative integers")
+    if any(ep < 0 for ep in args.stage_episodes) or len(set(args.stage_episodes)) != len(args.stage_episodes):
+        parser.error("stage-episodes must be distinct non-negative completed episodes")
     return args
 
 
@@ -313,6 +331,7 @@ def main(argv=None):
                         hidden=settings.hidden, dueling=flags[1]).parameters())
                         for name, flags in VARIANTS.items()},
                     settings=asdict(settings), seeds=args.seeds, eval_episodes=args.eval_episodes,
+                    recorded_stage_episodes=sorted(args.stage_episodes) if args.record_stages else [],
                     q_learning=dict(state_mode="refined", alpha=0.10, gamma=settings.gamma,
                                     weight_decay=0.0, evaluation_policy="team greedy policy with cycle prevention"),
                     train_map_seed=0, validation_map_seed=101, test_map_seed=202,
@@ -320,15 +339,45 @@ def main(argv=None):
     write_json(output / "manifest.json", manifest)
     print(f"Results: {output.relative_to(ROOT)}", flush=True)
 
-    networks, learning, validation = {}, [], []
+    networks, learning, validation, stage_validation = {}, [], [], []
     for name in MODEL_NAMES:
         for seed in args.seeds:
             started = time.perf_counter()
+            milestones = set(args.stage_episodes) if args.record_stages else set()
+
+            def on_stage(episode, step, network):
+                if episode not in milestones:
+                    return
+                filename = f"{name.replace(' ', '_')}_seed{seed}_ep{episode}"
+                filename += ".pkl" if name == TABULAR_NAME else ".pt"
+                if name == TABULAR_NAME:
+                    network.save(output / filename)
+                    evaluation_network = copy.deepcopy(network)
+                else:
+                    torch.save(dict(state_dict=network.state_dict(), model=name,
+                                    training_seed=seed, episode=episode, training_step=step,
+                                    settings=asdict(settings), data_sha256=manifest["data_sha256"]),
+                               output / filename)
+                    evaluation_network = network
+                records = evaluate_one(evaluation_network, validation_orders, scale,
+                                       name=name, training_seed=seed,
+                                       partition="validation", episodes=args.eval_episodes)
+                metrics = {metric: float(np.mean([row[metric] for row in records]))
+                           for metric in METRICS}
+                completed = [row["delivery_min"] for row in records if row["delivered"]]
+                metrics["delivery_min"] = float(np.mean(completed)) if completed else float("nan")
+                stage_validation.append(dict(model=name, training_seed=seed, episode=episode,
+                                             step=step, file=filename, **metrics))
+                if name != TABULAR_NAME:
+                    network.train()
+
             if name == TABULAR_NAME:
-                network, history = train_tabular(train_orders, scale, seed, settings)
+                network, history = train_tabular(train_orders, scale, seed, settings,
+                                                 on_stage=on_stage if args.record_stages else None)
                 network.save(output / f"Q-Learning_seed{seed}.pkl")
             else:
-                network, history = train_one(train_orders, scale, name, seed, settings)
+                network, history = train_one(train_orders, scale, name, seed, settings,
+                                             on_stage=on_stage if args.record_stages else None)
                 torch.save(dict(state_dict=network.state_dict(), model=name, training_seed=seed,
                                 settings=asdict(settings), data_sha256=manifest["data_sha256"]),
                            output / f"{name.replace(' ', '_')}_seed{seed}.pt")
@@ -339,6 +388,13 @@ def main(argv=None):
                                            episodes=args.eval_episodes))
             print(f"{name}, seed {seed}: {time.perf_counter() - started:.1f}s", flush=True)
     pd.DataFrame(learning).to_csv(output / "learning.csv", index=False)
+    if args.record_stages:
+        stage_fields = ["model", "training_seed", "episode", "step", "file", *METRICS,
+                        "delivery_min"]
+        with (output / "stage_validation.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=stage_fields)
+            writer.writeheader()
+            writer.writerows(stage_validation)
     by_seed = write_results(output, "validation", validation)
     ranking = by_seed.groupby("model")[["delivered", "on_time", "reward"]].mean().sort_values(
         ["delivered", "on_time", "reward"], ascending=False, kind="stable")
@@ -360,6 +416,9 @@ def main(argv=None):
     write_json(output / "manifest.json", manifest)
     if not args.smoke and len(args.seeds) >= 5 and settings.train_steps >= 60_000:
         write_portable_summary(output, manifest)
+        if args.record_stages:
+            from compare.export_demo_artifacts import export
+            export(output)
     print("Completed. Compare per-seed and held-out results before making a performance claim.", flush=True)
     return output
 

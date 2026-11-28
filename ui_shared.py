@@ -1,18 +1,9 @@
 """Look and navigation shared by the three dashboard pages.
 
-Streamlit's automatic page list shows raw file names, so it is hidden in
-.streamlit/config.toml and replaced by sidebar_header().
+Streamlit's automatic page list is hidden in .streamlit/config.toml.
+The sidebar offers the same delivery choice on every page and links to research.
 """
 import streamlit as st
-
-# (file relative to app.py, label, icon, one-line description)
-PAGES = [
-    ("app.py", "One delivery", "🛵", "One rider takes one order to one customer."),
-    ("pages/2_Multi_Order_D3QN.py", "Several deliveries", "📦",
-     "One rider carries up to 3 orders and must choose who to visit first."),
-    ("pages/3_Data_and_Experiments.py", "Data & experiments", "🔬",
-     "How the shared data was prepared and the models were tested."),
-]
 
 THEME_CSS = """
     <style>
@@ -166,9 +157,24 @@ THEME_CSS = """
         font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
         color: var(--muted); margin: 0.9rem 0 0.35rem;
     }
+    /* Give the delivery choice the same full-width, 44px targets as the research link. */
+    section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has(> [data-testid="stButtonGroup"] [aria-label="Choose a delivery"]) {
+        width: 100% !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stButtonGroup"]:has([aria-label="Choose a delivery"]) {
+        width: 100%; margin-bottom: 12px;
+    }
+    section[data-testid="stSidebar"] [data-testid="stButtonGroup"] [aria-label="Choose a delivery"] {
+        display: flex; width: 100%; max-width: 100% !important; min-height: 44px;
+    }
+    section[data-testid="stSidebar"] [data-testid="stButtonGroup"] [aria-label="Choose a delivery"] button {
+        flex: 1 1 0; min-height: 44px; justify-content: center; white-space: nowrap;
+        padding-left: 4px !important; padding-right: 4px !important;
+    }
     section[data-testid="stSidebar"] [data-testid="stPageLink"] a {
         border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; margin-bottom: 6px;
-        background: var(--surface);
+        background: var(--surface); display: flex; align-items: center; min-height: 44px;
+        width: 100%; box-sizing: border-box;
     }
     section[data-testid="stSidebar"] [data-testid="stPageLink"] a:hover { border-color: #FED7AA; }
     .nav-current {
@@ -198,8 +204,20 @@ def apply_theme() -> None:
     st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 
+def delivery_mode_switch(current: str | None) -> None:
+    """Choose one or several deliveries from the sidebar on any page."""
+    selected = st.segmented_control(
+        "Choose a delivery",
+        ("One delivery", "Several deliveries"),
+        default=current,
+        key=f"sidebar_delivery_mode_{(current or 'data').replace(' ', '_').lower()}",
+    )
+    if selected and selected != current:
+        st.switch_page("app.py" if selected == "One delivery" else "pages/2_Multi_Order_D3QN.py")
+
+
 def sidebar_header(current: str) -> None:
-    """Brand, then a clear switch between pages. Call inside `with st.sidebar:`."""
+    """Brand and consistent project navigation. Call inside the sidebar."""
     st.markdown(
         '<div class="brand"><div class="brand-logo">🛵</div><div>'
         '<div class="brand-name">Delivery Route Planner</div>'
@@ -207,16 +225,38 @@ def sidebar_header(current: str) -> None:
         unsafe_allow_html=True,
     )
     st.markdown('<div class="nav-label">Explore the project</div>', unsafe_allow_html=True)
-    for path, label, icon, desc in PAGES:
-        if path == current:  # the open page is highlighted, not a link
-            st.markdown(
-                f'<div class="nav-current"><div class="nav-current-title">{icon} {label}'
-                f'<span class="nav-here">You are here</span></div><div class="nav-desc">{desc}</div></div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.page_link(path, label=f"Switch to: {label}", icon=icon, help=desc)
+    mode = {
+        "app.py": "One delivery",
+        "pages/2_Multi_Order_D3QN.py": "Several deliveries",
+    }.get(current)
+    delivery_mode_switch(mode)
+    if current == "pages/3_Data_and_Experiments.py":
+        st.markdown(
+            '<div class="nav-current"><div class="nav-current-title">🔬 Data & experiments'
+            '<span class="nav-here">You are here</span></div></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.page_link(
+            "pages/3_Data_and_Experiments.py",
+            label="Data & experiments",
+            icon="🔬",
+            help="How the shared data was prepared and the models were tested.",
+        )
     st.divider()
+
+
+def html_kpi(icon: str, label: str, value: str, sub: str = "", tone: str = "", text: bool = False) -> str:
+    """Render a shared summary card for either delivery mode."""
+    return (
+        f'<div class="kpi"><div class="kpi-label"><span>{icon}</span>{label}</div>'
+        f'<div class="kpi-value{" text" if text else ""}">{value}</div><div class="kpi-sub {tone}">{sub}</div></div>'
+    )
+
+
+def route_tabs():
+    """The two route pages use the same navigation labels and ordering."""
+    return st.tabs(["🗺️  1 · Try a route", "📊  2 · Compare results"])
 
 
 def step_head(num: int, text: str) -> None:
