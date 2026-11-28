@@ -35,13 +35,14 @@ import torch.optim as optim
 from dqn.dqn_v2 import QNetwork as StandardMLP, ReplayBuffer
 from dqn.dqn_v3 import OBS_DIM_V3, features_v3
 from env import DeliveryEnv, load_orders
-from shared import evaluate_policy, split_orders
+from shared import VAL_SEED_OFFSET, evaluate_policy, safe_argmax, split_orders_single_3way
 
 RESULT_DIR = BASE_DIR / "d3qn" / "result"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 SEED = 42
 MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+torch.set_num_threads(1)
 
 
 # ==============================================================================
@@ -91,7 +92,7 @@ class DuelingQNetwork(nn.Module):
 
 
 def make_d3qn_policy(net: nn.Module):
-    """Deterministic greedy evaluation policy (disables Dropout via net.eval())."""
+    """Deterministic greedy evaluation policy (disables Dropout via net.eval()) with shared safe_argmax."""
     tracker = {"prev_pos": None}
 
     def act(env):
@@ -102,16 +103,7 @@ def make_d3qn_policy(net: nn.Module):
             state = features_v3(env._obs(), env)
             q_vals = net(torch.tensor(state).unsqueeze(0)).squeeze(0).numpy().copy()
 
-        # Prevent boundary wall bumps and immediate 2-step oscillation
-        r, c = env.pos
-        for a, (dr, dc) in enumerate(MOVES):
-            nr, nc = r + dr, c + dc
-            if not (0 <= nr < env.n and 0 <= nc < env.n):
-                q_vals[a] -= 10.0
-            elif (nr, nc) == tracker["prev_pos"]:
-                q_vals[a] -= 1.0
-
-        best_action = int(np.argmax(q_vals))
+        best_action = safe_argmax(q_vals, env, tracker["prev_pos"])
         tracker["prev_pos"] = env.pos
         return best_action
 
@@ -234,8 +226,8 @@ def main():
         if not data_path.exists():
             raise FileNotFoundError(f"Missing cleaned dataset at {data_path}. Run `python clean_data.py` first.")
         orders = load_orders(data_path)
-        train_orders, test_orders = split_orders(orders)
-        train_max_km = float(train_orders["distance_km"].quantile(0.95))
+        train_orders, val_orders, test_orders, train_max_km = split_orders_single_3way(orders)
+        val_env = DeliveryEnv(val_orders, max_km=train_max_km)
         test_env = DeliveryEnv(test_orders, max_km=train_max_km)
     except Exception as exc:
         print(f"[ERROR] Could not start D3QN pipeline: {exc}")
@@ -257,15 +249,15 @@ def main():
     print("ALGORITHM 3: DOUBLE DQN — PART A (DOUBLE DQN (MLP) VS D3QN)")
     print("=" * 72)
 
-    cfg_vanilla = {**base_cfg, "name": "Double DQN (Standard MLP)", "dueling": False, "lr": 1e-3, "gamma": 0.95, "hidden": 128, "weight_decay": 0.0, "dropout": 0.0}
+    cfg_vanilla = {**base_cfg, "name": "Double DQN (Standard MLP)", "dueling": False, "lr": 1e-3, "gamma": 0.95, "hidden": 128, "weight_decay": 0.0, "dropout": 0.0, "tau": 0.005}
     cfg_dueling = {**base_cfg, "name": "Dueling Double DQN (D3QN)", "dueling": True,  "lr": 1e-3, "gamma": 0.95, "hidden": 128, "weight_decay": 0.0, "dropout": 0.0, "tau": 0.005}
 
     print("\n[Part A - v1] Training Vanilla Double DQN (MLP)...")
-    net_van, rew_van = train_d3qn(DeliveryEnv(train_orders), cfg_vanilla, verbose=True)
+    net_van, rew_van = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), cfg_vanilla, verbose=True)
     res_van = evaluate_policy(make_d3qn_policy(net_van), test_env, episodes=500, name="Double DQN (MLP)")
 
     print("\n[Part A - v2] Training Dueling Double DQN (Value + Advantage Streams)...")
-    net_duel, rew_duel = train_d3qn(DeliveryEnv(train_orders), cfg_dueling, verbose=True)
+    net_duel, rew_duel = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), cfg_dueling, verbose=True)
     res_duel = evaluate_policy(make_d3qn_policy(net_duel), test_env, episodes=500, name="Dueling Double DQN")
 
     df_part_a = pd.DataFrame([res_van, res_duel])
@@ -298,9 +290,10 @@ def main():
         dict(label="D3QN-Reg 3 (L2 wd=5e-4, h=192, g=0.94)", lr=8e-4, gamma=0.94, hidden=192, weight_decay=5e-4, dropout=0.05, tau=0.005),
     ]
 
+    val_duel = evaluate_policy(make_d3qn_policy(net_duel), val_env, episodes=500, name="D3QN Baseline (No Reg)", seed_offset=VAL_SEED_OFFSET)
     best_net = net_duel
     best_cfg = cfg_dueling
-    best_reward = res_duel["avg_reward"]
+    best_val_reward = val_duel["avg_reward"]
 
     tune_rows = [{
         "config": "D3QN Baseline (No Reg)",
@@ -309,7 +302,7 @@ def main():
         "hidden": cfg_dueling["hidden"],
         "weight_decay_L2": 0.0,
         "dropout": 0.0,
-        **{k: v for k, v in res_duel.items() if k != "agent"},
+        **{k: v for k, v in val_duel.items() if k != "agent"},
         "train_time_s": 0.0,
     }]
 
@@ -317,8 +310,9 @@ def main():
         full_cfg = {**base_cfg, "dueling": True, **cand}
         t0 = time.time()
         print(f"\n[{i}/{len(tuning_candidates)}] Training {cand['label']}...")
-        net_c, _ = train_d3qn(DeliveryEnv(train_orders), full_cfg, verbose=True)
-        metrics = evaluate_policy(make_d3qn_policy(net_c), test_env, episodes=500, name=cand["label"])
+        net_c, _ = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), full_cfg, verbose=True)
+        # Select strictly on the 16% VALIDATION split (seeds 1000..1499)
+        metrics = evaluate_policy(make_d3qn_policy(net_c), val_env, episodes=500, name=cand["label"], seed_offset=VAL_SEED_OFFSET)
         elapsed = round(time.time() - t0, 1)
 
         tune_rows.append({
@@ -331,23 +325,24 @@ def main():
             **{k: v for k, v in metrics.items() if k != "agent"},
             "train_time_s": elapsed,
         })
-        print(f"    -> Success: {metrics['success_rate']:.1%} | Avg Reward: {metrics['avg_reward']:.2f} | Hotspots: {metrics['avg_hotspot_steps']:.2f}")
+        print(f"    -> Val Success: {metrics['success_rate']:.1%} | Val Avg Reward: {metrics['avg_reward']:.2f} | Hotspots: {metrics['avg_hotspot_steps']:.2f}")
 
-        if metrics["avg_reward"] > best_reward:
-            best_reward = metrics["avg_reward"]
+        if metrics["avg_reward"] > best_val_reward:
+            best_val_reward = metrics["avg_reward"]
             best_net = net_c
             best_cfg = full_cfg
 
     df_tune = pd.DataFrame(tune_rows)
     df_tune.to_csv(RESULT_DIR / "d3qn_part_b_tuning.csv", index=False)
-    print("\n=== Dueling Double DQN Part B Regularization & Tuning Summary ===")
+    print("\n=== Dueling Double DQN Part B Validation Regularization & Tuning Summary ===")
     print(df_tune.round(3).to_string(index=False))
 
     torch.save({
         "state_dict": best_net.state_dict(),
         "config": best_cfg,
     }, RESULT_DIR / "d3qn_model_best.pt")
-    print(f"\nSaved best Dueling Double DQN model (Avg Reward={best_reward:.2f}) -> {RESULT_DIR / 'd3qn_model_best.pt'}")
+    test_best = evaluate_policy(make_d3qn_policy(best_net), test_env, episodes=500, name="D3QN")
+    print(f"\nSaved best Dueling Double DQN model (Val Reward={best_val_reward:.2f} | Test Reward={test_best['avg_reward']:.2f}) -> {RESULT_DIR / 'd3qn_model_best.pt'}")
 
 
 if __name__ == "__main__":

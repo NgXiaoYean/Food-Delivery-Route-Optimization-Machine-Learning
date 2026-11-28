@@ -17,7 +17,7 @@ from d3qn.d3qn_pipeline import load_best_d3qn, make_d3qn_policy
 from env import DeliveryEnv, load_orders
 from evaluate import greedy_policy, make_cross_algorithm_ensemble, planner_policy, random_policy
 from q_learning.q_learning_pipeline import TabularQLearningAgent, make_ql_policy
-from shared import evaluate_policy, split_orders
+from shared import evaluate_policy, split_orders_single_3way
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
@@ -66,8 +66,7 @@ def load_policies():
 
 def main():
     orders = load_orders(DATA_PATH)
-    train_orders, test_orders = split_orders(orders)
-    train_max_km = float(train_orders["distance_km"].quantile(0.95))
+    _, _, test_orders, train_max_km = split_orders_single_3way(orders)
     policies = load_policies()
 
     rows = []

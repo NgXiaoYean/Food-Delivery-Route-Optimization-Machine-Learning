@@ -23,7 +23,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from env import DeliveryEnv, TRAFFIC_MAP, WEATHER_MAP, haversine_km, load_orders
-from shared import split_orders
+from shared import split_orders, split_orders_single_3way
 from ui_shared import apply_theme, html_kpi, page_hero, route_tabs, sidebar_header, step_head
 from evaluate import (
     greedy_policy,
@@ -201,7 +201,7 @@ def load_system_resources():
         raise FileNotFoundError(f"Cleaned dataset missing at {DATA_PATH}. Run `python clean_data.py` first.")
 
     orders = load_orders(DATA_PATH)
-    train_orders, test_orders = split_orders(orders)
+    train_orders, _, test_orders, _ = split_orders_single_3way(orders)
 
     full_df = load_orders_with_metadata(DATA_PATH)
     _, test_meta = split_orders(full_df)
@@ -320,7 +320,8 @@ def load_system_resources():
 
 def simulate_single_episode(policy_fn, test_orders, seed: int, custom_cfg=None):
     hotspot_frac = custom_cfg["hotspot_frac"] if custom_cfg else 0.15
-    env = DeliveryEnv(test_orders, hotspot_frac=hotspot_frac)
+    train_max_km = float(train_orders["distance_km"].quantile(0.95)) if "train_orders" in globals() else None
+    env = DeliveryEnv(test_orders, hotspot_frac=hotspot_frac, max_km=train_max_km)
     env.reset(seed=seed)
 
     if custom_cfg and custom_cfg.get("use_custom"):
