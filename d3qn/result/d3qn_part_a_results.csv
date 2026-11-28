@@ -1,3 +1,3 @@
 agent,success_rate,on_time_rate,avg_reward,std_reward,avg_steps,route_efficiency,avg_delivery_time_min,avg_hotspot_steps
-Double DQN (MLP),1.0,0.482,29.9384,14.455402984351561,8.452,1.0,29.079800000000002,0.734
-Dueling Double DQN,1.0,0.484,29.7455,14.447313063334649,8.452,1.0,29.3196,0.834
+Double DQN (MLP),1.0,0.498,30.7291,13.52398011644501,8.454,0.9995555555555555,28.46,0.548
+Dueling Double DQN,1.0,0.488,30.545900000000003,13.680421710970755,8.45,1.0,28.631,0.608
