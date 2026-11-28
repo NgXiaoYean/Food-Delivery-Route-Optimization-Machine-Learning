@@ -1,0 +1,7 @@
+[normal test] mean regret vs Planner 0.89; the worst 10% of trips cause 68% of the total regret; ensemble beats the Planner outright on 1% of trips.
+[normal test] extra lateness vs Planner: +0.69 min/trip; extra congested-cell steps: +0.26/trip.
+[normal test] no failed trips in any seed.
+[new order mid-trip] mean regret vs Planner 2.16; the worst 10% of trips cause 69% of the total regret; ensemble beats the Planner outright on 13% of trips.
+[new order mid-trip] extra lateness vs Planner: +1.52 min/trip; extra congested-cell steps: +0.40/trip.
+[new order mid-trip] 16 failed trip-runs over 5 seeds (12 distinct trips). k of failed trips: {1: 2, 2: 10}; traffic: {'Jam': 8, 'Medium': 2, 'Low': 1, 'High': 1}
+[new order mid-trip] trips failed by more than one seed (systematic, not luck): 2 of 12

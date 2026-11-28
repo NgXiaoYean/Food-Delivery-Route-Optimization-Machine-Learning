@@ -1,0 +1,7 @@
+,avg_reward,avg_reward,avg_reward,success_rate,success_rate,success_rate,avg_hotspot_steps,avg_hotspot_steps,avg_hotspot_steps,train_time_s,train_time_s,train_time_s
+,mean,std,count,mean,std,count,mean,std,count,mean,std,count
+variant,,,,,,,,,,,,
+D3QN,53.116,0.426,5,0.998,0.001,5,0.905,0.051,5,333.06,17.813,5
+DQN,51.244,1.747,5,0.998,0.002,5,1.009,0.034,5,228.04,16.393,5
+Double DQN,51.126,1.608,5,0.995,0.003,5,0.965,0.067,5,255.6,14.172,5
+Dueling DQN,51.333,2.428,5,0.994,0.006,5,0.938,0.053,5,316.26,14.17,5
