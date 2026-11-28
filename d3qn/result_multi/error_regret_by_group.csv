@@ -1,0 +1,23 @@
+scenario,factor,group,trips,regret,gain_vs_greedy,ensemble_late,planner_late,ensemble_hot,planner_hot
+normal test,k,1,153,0.278,2.897,6.548,6.35,0.49,0.373
+normal test,k,2,309,1.083,4.809,22.866,21.946,0.981,0.676
+normal test,k,3,38,1.795,7.722,48.316,47.505,1.632,1.105
+normal test,traffic,High,54,0.783,3.794,18.472,18.017,0.611,0.426
+normal test,traffic,Jam,171,1.101,7.632,32.077,31.47,0.877,0.596
+normal test,traffic,Low,159,0.524,1.777,9.267,8.68,0.899,0.648
+normal test,traffic,Medium,116,1.134,3.709,16.788,15.722,0.983,0.69
+normal test,weather,Clear/Cloudy,157,0.84,4.347,13.347,12.949,0.854,0.548
+normal test,weather,Fog/Sandstorm,164,0.783,4.072,20.06,19.27,0.817,0.591
+normal test,weather,Stormy,88,1.091,5.156,29.017,28.062,0.955,0.67
+normal test,weather,Windy,91,0.979,4.601,21.589,20.827,0.967,0.725
+new order mid-trip,k,1,153,1.782,3.078,19.448,18.013,0.967,0.673
+new order mid-trip,k,2,309,2.397,5.685,46.462,44.805,1.595,1.159
+new order mid-trip,k,3,38,1.795,7.722,48.316,47.505,1.632,1.105
+new order mid-trip,traffic,High,54,3.169,5.13,35.854,33.45,1.148,0.741
+new order mid-trip,traffic,Jam,171,2.967,8.539,59.731,58.349,1.38,0.918
+new order mid-trip,traffic,Low,159,0.953,1.944,19.803,18.742,1.478,1.088
+new order mid-trip,traffic,Medium,116,2.168,4.091,33.357,31.398,1.466,1.147
+new order mid-trip,weather,Clear/Cloudy,157,1.943,5.258,26.172,25.201,1.439,0.975
+new order mid-trip,weather,Fog/Sandstorm,164,3.052,5.665,39.435,36.77,1.311,0.902
+new order mid-trip,weather,Stormy,88,2.378,3.055,57.334,55.273,1.568,1.227
+new order mid-trip,weather,Windy,91,0.732,5.468,38.971,39.068,1.363,1.033

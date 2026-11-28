@@ -1,0 +1,6 @@
+comparison,what_it_tests,mean_diff,ci_low,ci_high,interval_excludes_zero
+Double DQN minus DQN,Double effect (no dueling),-0.118,-1.334,1.031,False
+D3QN minus Dueling DQN,Double effect (with dueling),1.784,0.777,3.031,True
+Dueling DQN minus DQN,Dueling effect (no double),0.088,-1.043,1.135,False
+D3QN minus Double DQN,Dueling effect (with double),1.991,0.882,3.318,True
+D3QN minus DQN,Both together,1.872,0.951,2.953,True

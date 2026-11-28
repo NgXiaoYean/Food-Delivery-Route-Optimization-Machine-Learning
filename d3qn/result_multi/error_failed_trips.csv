@@ -1,0 +1,17 @@
+scenario,model_seed,trip_seed,traffic,weather,k,arrival_step
+new order mid-trip,0,221,High,Windy,2,8
+new order mid-trip,0,288,Low,Clear/Cloudy,2,8
+new order mid-trip,0,371,Jam,Fog/Sandstorm,2,5
+new order mid-trip,0,429,Jam,Clear/Cloudy,2,7
+new order mid-trip,0,439,Jam,Fog/Sandstorm,1,6
+new order mid-trip,0,444,Jam,Stormy,2,7
+new order mid-trip,1,429,Jam,Clear/Cloudy,2,7
+new order mid-trip,2,273,Jam,Clear/Cloudy,2,3
+new order mid-trip,2,371,Jam,Fog/Sandstorm,2,5
+new order mid-trip,3,54,Medium,Fog/Sandstorm,1,6
+new order mid-trip,3,63,Medium,Stormy,2,6
+new order mid-trip,3,332,Jam,Fog/Sandstorm,2,4
+new order mid-trip,3,371,Jam,Fog/Sandstorm,2,5
+new order mid-trip,3,429,Jam,Clear/Cloudy,2,7
+new order mid-trip,4,52,Jam,Fog/Sandstorm,2,6
+new order mid-trip,4,486,Jam,Stormy,2,3

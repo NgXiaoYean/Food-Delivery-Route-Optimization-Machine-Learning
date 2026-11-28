@@ -2,8 +2,6 @@
 
 An end-to-end Reinforcement Learning system optimizing urban food delivery routes under dynamic traffic, weather, and congestion hotspots, grounded in **40,482 cleaned delivery orders** (from 45,584 raw records) from the [Kaggle Zomato Delivery Operations Analytics Dataset](https://www.kaggle.com/datasets/saurabhbadole/zomato-delivery-operations-analytics-dataset?select=Zomato+Dataset.csv).
 
-See **[`docs/PROTOCOL.md`](docs/PROTOCOL.md)** for the complete one-page experiment protocol mapping every report table to its script, data split, seed count, timeout target rule, and hotspot map seed.
-
 ---
 
 ## 👥 3-Algorithm Architecture (Mapped to Team Members & Assessment Rubric)
@@ -33,8 +31,6 @@ See **[`docs/PROTOCOL.md`](docs/PROTOCOL.md)** for the complete one-page experim
 │   ├── dataset_clean.csv              # Cleaned delivery dataset (40,482 valid orders)
 │   ├── cleaning_log.csv               # Step-by-step data cleaning audit log
 │   └── data_checks.csv                # Empirical verification of negative-GPS & dropped-row assumptions
-├── docs/
-│   └── PROTOCOL.md                    # One-page protocol mapping every report table to its script & split
 ├── compare/                           # Official Part A Controlled 5-Model Comparison (64/16/20 split, 5 seeds)
 │   ├── part_a_comparison.py           # Runs Q-Learning, DQN, Double DQN, Dueling DQN, D3QN on identical budget
 │   └── part_a_summary.json            # Portable 5-seed summary loaded by pages/3_Data_and_Experiments.py
@@ -66,9 +62,12 @@ See **[`docs/PROTOCOL.md`](docs/PROTOCOL.md)** for the complete one-page experim
 │   └── zomato_exploration/            # 16 EDA distributions, correlations & dataset report
 ├── result/
 │   ├── master_all_models_results.csv  # Historical single-order 8-metric scoreboard (80/20 split, same map)
+│   ├── seen_vs_unseen_map_results.csv # Saved 80/20 models on seen map (map_seed=0) vs unseen map (map_seed=202)
 │   ├── master_comparison_chart.png    # 4-panel multi-algorithm visual benchmark
 │   ├── missing_data_comparison.csv    # Part B.1 missing-data strategy comparison
 │   └── error_analysis/                # Single-order breakdown tables & charts by traffic, weather & distance
+├── tests/
+│   └── test_core.py                   # Core unit tests (splits, seed reproducibility, rewards, Double-Q, Planner)
 ├── pages/
 │   ├── 2_Multi_Order_D3QN.py          # Page 2: Multi-order D3QN interactive simulator & 2,000-trip results
 │   ├── 3_Data_and_Experiments.py      # Page 3: Saved project evidence (cleaning, 5-model Part A, benchmarks)
@@ -82,6 +81,7 @@ See **[`docs/PROTOCOL.md`](docs/PROTOCOL.md)** for the complete one-page experim
 ├── env_multi.py                       # Extended 10x10 Multi-Order Delivery Environment (1-3 customers + dynamic arrival)
 ├── shared.py                          # Shared 80/20 split & 8-metric single-order evaluation protocol
 ├── evaluate.py                        # Historical single-order master benchmark & Cross-Algorithm Ensemble
+├── evaluate_unseen_map.py             # Evaluates saved 80/20 checkpoints on map_seed=0 vs map_seed=202
 ├── analyze_errors.py                  # Historical single-order error & hotspot analysis
 ├── app.py                             # Page 1: Single-Order Interactive Route Planner Dashboard
 └── requirements.txt                   # Dependencies
@@ -106,7 +106,7 @@ python -B -m compare.part_a_comparison --smoke   # quick wiring check
 python -B -m compare.part_a_comparison           # full 5-seed run -> compare/part_a_summary.json
 
 # 4. Multi-Order D3QN Pipeline (Part A Ladder + Part B Search, 5-Seed Ensemble, Ablation & Robustness)
-python d3qn/ladder_multi.py --seeds 3            # Part A 4-way ladder (DQN, Double DQN, Dueling DQN, D3QN)
+python d3qn/ladder_multi.py --seeds 5            # Part A 4-way ladder (DQN, Double DQN, Dueling DQN, D3QN)
 python d3qn/d3qn_multi.py --stage A              # Architecture check on validation trips
 python d3qn/d3qn_multi.py --stage B --n-configs 8  # Random search on validation trips -> best_config.json
 python d3qn/d3qn_multi.py --stage C --seeds 5    # Train 5 seeds & score once on test scenarios
@@ -119,14 +119,16 @@ python d3qn/error_analysis_multi.py              # Regret breakdown by customer 
 python d3qn/timing_multi.py                      # Per-decision CPU latency
 python d3qn/split_study_multi.py --seeds 3       # Split-ratio & split-seed sensitivity
 
-# 5. Historical Single-Order Pipelines & Extension Unit Tests
+# 5. Historical Single-Order Pipelines, Unseen-Map Check & Unit Tests
 python q_learning/q_learning_pipeline.py
 python dqn/dqn_v1.py
 python dqn/dqn_v2.py
 python dqn/dqn_v3.py
 python d3qn/d3qn_pipeline.py
 python evaluate.py
+python evaluate_unseen_map.py
 python analyze_errors.py
+python -B -m unittest tests.test_core -v
 python -B -m unittest dqn_dynamic.test_v4
 
 # 6. Launch Interactive 3-Page Streamlit Dashboard
