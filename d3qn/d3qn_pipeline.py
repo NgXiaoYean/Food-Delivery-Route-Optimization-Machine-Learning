@@ -17,6 +17,7 @@ Why Dueling Double DQN for Food Delivery Route Optimization?
 Run from project root:
     python d3qn/d3qn_pipeline.py
 """
+from concurrent.futures import ProcessPoolExecutor
 import random
 import sys
 import time
@@ -139,6 +140,10 @@ def train_d3qn(env, cfg: dict, verbose: bool = False):
     buffer = ReplayBuffer(cfg["buffer_size"])
     total_steps = 0
     episode_rewards = []
+    has_dropout = cfg.get("dropout", 0.0) > 0.0
+    online_params = list(online.parameters())
+    target_params = list(target.parameters())
+    tau = cfg.get("tau", None)
 
     for ep in range(cfg["episodes"]):
         frac = min(1.0, ep / max(1, cfg["eps_decay_episodes"]))
@@ -152,10 +157,12 @@ def train_d3qn(env, cfg: dict, verbose: bool = False):
             if random.random() < eps:
                 action = random.randrange(4)
             else:
-                online.eval()
+                if has_dropout:
+                    online.eval()
                 with torch.no_grad():
                     action = int(online(torch.tensor(state).unsqueeze(0)).argmax(1))
-                online.train()
+                if has_dropout:
+                    online.train()
 
             next_obs, reward, terminated, truncated, _ = env.step(action)
             next_state = features_v3(next_obs, env)
@@ -167,38 +174,50 @@ def train_d3qn(env, cfg: dict, verbose: bool = False):
             total_steps += 1
 
             if len(buffer) >= max(cfg["warmup"], cfg["batch_size"]):
-                online.train()
                 s, a, r, s2, d = buffer.sample(cfg["batch_size"])
                 q = online(s).gather(1, a)
 
                 with torch.no_grad():
                     # Double Q-Learning target: online selects action, target evaluates Q-value
-                    online.eval()
+                    if has_dropout:
+                        online.eval()
                     best_actions = online(s2).argmax(1, keepdim=True)
-                    online.train()
+                    if has_dropout:
+                        online.train()
                     best_next = target(s2).gather(1, best_actions)
                     y = r + cfg["gamma"] * best_next * (1.0 - d)
 
                 loss = nn.functional.smooth_l1_loss(q, y)
                 optimiser.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(online.parameters(), cfg.get("grad_clip", 5.0))
+                nn.utils.clip_grad_norm_(online_params, cfg.get("grad_clip", 5.0))
                 optimiser.step()
 
                 # Polyak soft target update or periodic hard update
-                tau = cfg.get("tau", None)
                 if tau is not None:
-                    for p_on, p_tg in zip(online.parameters(), target.parameters()):
-                        p_tg.data.copy_(tau * p_on.data + (1.0 - tau) * p_tg.data)
+                    with torch.no_grad():
+                        torch._foreach_lerp_(target_params, online_params, tau)
                 elif total_steps % cfg["target_update_steps"] == 0:
                     target.load_state_dict(online.state_dict())
 
         episode_rewards.append(ep_reward)
-        if verbose and (ep + 1) % 1000 == 0:
-            print(f"    Episode {ep+1:5d} | eps={eps:.2f} | Avg Reward (last 500): {np.mean(episode_rewards[-500:]):6.2f}")
+        if verbose and (ep + 1) % 500 == 0:
+            print(f"    Episode {ep+1:5d} | eps={eps:.2f} | Avg Reward (last 500): {np.mean(episode_rewards[-500:]):6.2f}", flush=True)
 
     online.eval()
     return online, episode_rewards
+
+
+def _train_worker(job):
+    """Deterministic single-thread worker for parallel candidate training."""
+    label, train_orders, train_max_km, cfg = job
+    torch.set_num_threads(1)
+    t0 = time.time()
+    print(f"  [Start] {label}...", flush=True)
+    net, rewards = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), cfg, verbose=True)
+    elapsed = round(time.time() - t0, 1)
+    print(f"  [Done]  {label} ({elapsed}s)", flush=True)
+    return label, {k: v.cpu() for k, v in net.state_dict().items()}, rewards, elapsed, cfg
 
 
 def load_best_d3qn(checkpoint_path: Path = RESULT_DIR / "d3qn_model_best.pt") -> nn.Module:
@@ -252,12 +271,36 @@ def main():
     cfg_vanilla = {**base_cfg, "name": "Double DQN (Standard MLP)", "dueling": False, "lr": 1e-3, "gamma": 0.95, "hidden": 128, "weight_decay": 0.0, "dropout": 0.0, "tau": 0.005}
     cfg_dueling = {**base_cfg, "name": "Dueling Double DQN (D3QN)", "dueling": True,  "lr": 1e-3, "gamma": 0.95, "hidden": 128, "weight_decay": 0.0, "dropout": 0.0, "tau": 0.005}
 
-    print("\n[Part A - v1] Training Vanilla Double DQN (MLP)...")
-    net_van, rew_van = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), cfg_vanilla, verbose=True)
+    tuning_candidates = [
+        dict(label="D3QN-Reg 1 (L2 wd=1e-4, Dropout=0.0)", lr=1e-3, gamma=0.95, hidden=128, weight_decay=1e-4, dropout=0.00, tau=0.005),
+        dict(label="D3QN-Reg 2 (L2 wd=1e-4, Dropout=0.1)", lr=1e-3, gamma=0.95, hidden=128, weight_decay=1e-4, dropout=0.10, tau=0.005),
+        dict(label="D3QN-Reg 3 (L2 wd=5e-4, h=192, g=0.94)", lr=8e-4, gamma=0.94, hidden=192, weight_decay=5e-4, dropout=0.05, tau=0.005),
+    ]
+
+    jobs = [
+        ("Double DQN (MLP)", train_orders, train_max_km, cfg_vanilla),
+        ("Dueling Double DQN", train_orders, train_max_km, cfg_dueling),
+    ] + [
+        (cand["label"], train_orders, train_max_km, {**base_cfg, "dueling": True, **cand})
+        for cand in tuning_candidates
+    ]
+
+    print(f"\nTraining {len(jobs)} single-order Double-DQN / D3QN variants in parallel (1 CPU thread each)...", flush=True)
+    results_by_label = {}
+    with ProcessPoolExecutor(max_workers=len(jobs)) as pool:
+        for label, state_dict, rewards, elapsed, cfg in pool.map(_train_worker, jobs):
+            if cfg.get("dueling", True):
+                net = DuelingQNetwork(obs_dim=OBS_DIM_V3, hidden=cfg["hidden"], dropout=0.0)
+            else:
+                net = StandardMLP(obs_dim=OBS_DIM_V3, hidden=cfg["hidden"])
+            net.load_state_dict(state_dict)
+            net.eval()
+            results_by_label[label] = (net, rewards, elapsed, cfg)
+
+    net_van, rew_van, _, _ = results_by_label["Double DQN (MLP)"]
     res_van = evaluate_policy(make_d3qn_policy(net_van), test_env, episodes=500, name="Double DQN (MLP)")
 
-    print("\n[Part A - v2] Training Dueling Double DQN (Value + Advantage Streams)...")
-    net_duel, rew_duel = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), cfg_dueling, verbose=True)
+    net_duel, rew_duel, time_duel, _ = results_by_label["Dueling Double DQN"]
     res_duel = evaluate_policy(make_d3qn_policy(net_duel), test_env, episodes=500, name="Dueling Double DQN")
 
     df_part_a = pd.DataFrame([res_van, res_duel])
@@ -284,12 +327,6 @@ def main():
     print("ALGORITHM 3: DUELING DOUBLE DQN — PART B (REGULARIZATION & TUNING)")
     print("=" * 72)
 
-    tuning_candidates = [
-        dict(label="D3QN-Reg 1 (L2 wd=1e-4, Dropout=0.0)", lr=1e-3, gamma=0.95, hidden=128, weight_decay=1e-4, dropout=0.00, tau=0.005),
-        dict(label="D3QN-Reg 2 (L2 wd=1e-4, Dropout=0.1)", lr=1e-3, gamma=0.95, hidden=128, weight_decay=1e-4, dropout=0.10, tau=0.005),
-        dict(label="D3QN-Reg 3 (L2 wd=5e-4, h=192, g=0.94)", lr=8e-4, gamma=0.94, hidden=192, weight_decay=5e-4, dropout=0.05, tau=0.005),
-    ]
-
     val_duel = evaluate_policy(make_d3qn_policy(net_duel), val_env, episodes=500, name="D3QN Baseline (No Reg)", seed_offset=VAL_SEED_OFFSET)
     best_net = net_duel
     best_cfg = cfg_dueling
@@ -303,17 +340,13 @@ def main():
         "weight_decay_L2": 0.0,
         "dropout": 0.0,
         **{k: v for k, v in val_duel.items() if k != "agent"},
-        "train_time_s": 0.0,
+        "train_time_s": time_duel,
     }]
 
     for i, cand in enumerate(tuning_candidates, 1):
-        full_cfg = {**base_cfg, "dueling": True, **cand}
-        t0 = time.time()
-        print(f"\n[{i}/{len(tuning_candidates)}] Training {cand['label']}...")
-        net_c, _ = train_d3qn(DeliveryEnv(train_orders, max_km=train_max_km), full_cfg, verbose=True)
+        net_c, _, elapsed, full_cfg = results_by_label[cand["label"]]
         # Select strictly on the 16% VALIDATION split (seeds 1000..1499)
         metrics = evaluate_policy(make_d3qn_policy(net_c), val_env, episodes=500, name=cand["label"], seed_offset=VAL_SEED_OFFSET)
-        elapsed = round(time.time() - t0, 1)
 
         tune_rows.append({
             "config": cand["label"],
@@ -325,7 +358,7 @@ def main():
             **{k: v for k, v in metrics.items() if k != "agent"},
             "train_time_s": elapsed,
         })
-        print(f"    -> Val Success: {metrics['success_rate']:.1%} | Val Avg Reward: {metrics['avg_reward']:.2f} | Hotspots: {metrics['avg_hotspot_steps']:.2f}")
+        print(f"  [{i}/{len(tuning_candidates)}] {cand['label']} -> Val Success: {metrics['success_rate']:.1%} | Val Avg Reward: {metrics['avg_reward']:.2f} | Hotspots: {metrics['avg_hotspot_steps']:.2f}")
 
         if metrics["avg_reward"] > best_val_reward:
             best_val_reward = metrics["avg_reward"]
