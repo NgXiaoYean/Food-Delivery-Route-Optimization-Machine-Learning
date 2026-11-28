@@ -7,6 +7,7 @@ Changes from v1 (v1 reached only 7% test success, below the random agent):
 KEEP the v1 results (learning curve + numbers) for the before/after table in the report (Part B).
 """
 
+import copy
 import random
 
 import sys
@@ -21,7 +22,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from shared import evaluate_policy, split_orders
+from shared import VAL_SEED_OFFSET, evaluate_policy, safe_argmax, split_orders_single_3way
 from env import DeliveryEnv, load_orders
 
 
@@ -32,17 +33,18 @@ SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
+torch.set_num_threads(1)
 
 # All tunable settings in one place -> Part B can search over these automatically.
 CONFIG = dict(
-    episodes=6000,            # number of training deliveries (v1: 3000)
-    gamma=0.99,               # discount: how much future reward matters
+    episodes=4000,            # number of training deliveries (v1: 3000)
+    gamma=0.95,               # standardized discount across single-order & multi-order learners
     lr=1e-3,                  # learning rate of the optimiser
     batch_size=64,            # transitions sampled from replay per update
     buffer_size=50_000,       # replay memory capacity
     eps_start=1.0,            # start fully random
     eps_end=0.05,             # always keep 5% exploration
-    eps_decay_episodes=3000,  # episodes over which epsilon falls linearly (v1: 1500)
+    eps_decay_episodes=2000,  # episodes over which epsilon falls linearly (v1: 1500)
     target_update_steps=500,  # copy online net -> target net every N steps
     hidden=128,               # neurons per hidden layer
     warmup=1000,              # collect this many transitions before learning
@@ -97,14 +99,15 @@ class ReplayBuffer:
         return len(self.buf)
 
 
-def train_dqn(env, cfg=CONFIG, verbose=True):
-    """Train a DQN agent on `env`. Returns (trained network, list of episode rewards)."""
+def train_dqn(env, cfg=CONFIG, verbose=True, val_env=None):
+    """Train a DQN agent on `env`. Returns (best validated network, list of episode rewards)."""
     online = QNetwork(hidden=cfg["hidden"])
     target = QNetwork(hidden=cfg["hidden"])
     target.load_state_dict(online.state_dict())  # target starts as an exact copy
     optimiser = optim.Adam(online.parameters(), lr=cfg["lr"])
     buffer = ReplayBuffer(cfg["buffer_size"])
     total_steps, episode_rewards, episode_success = 0, [], []
+    best_state, best_val_reward = copy.deepcopy(online.state_dict()), -1e9
 
     for ep in range(cfg["episodes"]):
         # Linear epsilon decay: lots of exploration early, mostly exploitation later
@@ -153,26 +156,46 @@ def train_dqn(env, cfg=CONFIG, verbose=True):
             print(f"episode {ep+1:5d}  eps={eps:.2f}  "
                   f"avg reward={np.mean(episode_rewards[-250:]):7.1f}  "
                   f"success={np.mean(episode_success[-250:]):.0%}  (last 250 episodes)")
+        if val_env is not None and (ep + 1) >= cfg["eps_decay_episodes"] and (ep + 1) % 500 == 0:
+            online.eval()
+            val_res = evaluate_policy(dqn_policy(online), val_env, episodes=500, name="DQN v2", seed_offset=VAL_SEED_OFFSET)
+            if val_res["avg_reward"] > best_val_reward:
+                best_val_reward = val_res["avg_reward"]
+                best_state = copy.deepcopy(online.state_dict())
+            online.train()
+
+    if val_env is not None and best_val_reward > -1e8:
+        online.load_state_dict(best_state)
+    online.eval()
     return online, episode_rewards
 
 
 def dqn_policy(net):
-    """Greedy policy (no exploration) used for evaluation."""
+    """Greedy policy (no exploration) used for evaluation with shared safe_argmax filter."""
+    tracker = {"prev_pos": None}
+
     def act(env):
+        if env.steps == 0:
+            tracker["prev_pos"] = None
         with torch.no_grad():
             state = features(env._obs())
-            return int(net(torch.tensor(state).unsqueeze(0)).argmax(1))
+            q_vals = net(torch.tensor(state).unsqueeze(0)).squeeze(0).numpy()
+        best_a = safe_argmax(q_vals, env, tracker["prev_pos"])
+        tracker["prev_pos"] = env.pos
+        return best_a
+
     return act
 
 
 if __name__ == "__main__":
     orders = load_orders("./data/dataset_clean.csv")
-    train_orders, test_orders = split_orders(orders)  # 80% train / 20% test
-    train_env = DeliveryEnv(train_orders)
-    test_env = DeliveryEnv(test_orders)
+    train_orders, val_orders, test_orders, train_max_km = split_orders_single_3way(orders)
+    train_env = DeliveryEnv(train_orders, max_km=train_max_km)
+    val_env = DeliveryEnv(val_orders, max_km=train_max_km)
+    test_env = DeliveryEnv(test_orders, max_km=train_max_km)
     train_env.rng = np.random.default_rng(SEED)  # reproducible training orders
 
-    net, rewards = train_dqn(train_env)
+    net, rewards = train_dqn(train_env, val_env=val_env)
 
     # Learning curve: moving average shows whether the agent is improving
     smooth = pd.Series(rewards).rolling(100).mean()

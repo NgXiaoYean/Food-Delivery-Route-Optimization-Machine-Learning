@@ -25,7 +25,7 @@ import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
 from env import DeliveryEnv, load_orders
-from shared import evaluate_policy, split_orders
+from shared import evaluate_policy, safe_argmax, split_orders_single_3way
 
 try:
     import torch
@@ -134,16 +134,7 @@ def make_cross_algorithm_ensemble(ql_agent, dqn_v2_net, dqn_v3_net, d3qn_net):
                     q_d3qn = d3qn_net(torch.tensor(features_v3(obs, env)).unsqueeze(0)).squeeze(0).numpy()
                     blended += 0.70 * norm(q_d3qn)
 
-        # Boundary safety & short-term oscillation filter
-        r, c = env.pos
-        for a, (dr, dc) in enumerate(MOVES):
-            nr, nc = r + dr, c + dc
-            if not (0 <= nr < env.n and 0 <= nc < env.n):
-                blended[a] -= 10.0
-            elif (nr, nc) == tracker["prev_pos"]:
-                blended[a] -= 1.5
-
-        best_a = int(np.argmax(blended))
+        best_a = safe_argmax(blended, env, tracker["prev_pos"])
         tracker["prev_pos"] = env.pos
         return best_a
 
@@ -272,8 +263,8 @@ if __name__ == "__main__":
         if not DATA_PATH.exists():
             raise FileNotFoundError(f"Cleaned dataset not found at {DATA_PATH}. Run `python clean_data.py` first.")
         orders = load_orders(DATA_PATH)
-        _, test_orders = split_orders(orders)
-        env = DeliveryEnv(test_orders)
+        _, _, test_orders, train_max_km = split_orders_single_3way(orders)
+        env = DeliveryEnv(test_orders, max_km=train_max_km)
     except Exception as exc:
         print(f"[ERROR] Initialization failed: {exc}")
         sys.exit(1)

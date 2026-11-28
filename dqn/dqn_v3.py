@@ -9,6 +9,7 @@ Traffic level is already in the state, so the network can learn that a hotspot c
 
 This needs NO change to env.py (the flags are read from env.hotspots), so teammates are unaffected.
 """
+import copy
 import random
 import sys
 from pathlib import Path
@@ -23,10 +24,11 @@ import torch.optim as optim
 
 from dqn.dqn_v2 import CONFIG, QNetwork, ReplayBuffer, SEED, features as base_features
 from env import DeliveryEnv, load_orders
-from shared import evaluate_policy, split_orders
+from shared import VAL_SEED_OFFSET, evaluate_policy, safe_argmax, split_orders_single_3way
 
 OBS_DIM_V3 = 8 + 3 + 4  # env state + v2 relative-direction features + 4 hotspot flags
 MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # same order as the actions: up, down, left, right
+torch.set_num_threads(1)
 
 
 def features_v3(obs, env):
@@ -40,7 +42,7 @@ def features_v3(obs, env):
     return np.concatenate([base_features(obs), flags]).astype(np.float32)
 
 
-def train_dqn_v3(env, cfg=CONFIG, verbose=True):
+def train_dqn_v3(env, cfg=CONFIG, verbose=True, val_env=None):
     """Same DQN training loop as v2 (replay, target network, epsilon-greedy); only the state differs."""
     online = QNetwork(obs_dim=OBS_DIM_V3, hidden=cfg["hidden"])
     target = QNetwork(obs_dim=OBS_DIM_V3, hidden=cfg["hidden"])
@@ -48,6 +50,7 @@ def train_dqn_v3(env, cfg=CONFIG, verbose=True):
     optimiser = optim.Adam(online.parameters(), lr=cfg["lr"])
     buffer = ReplayBuffer(cfg["buffer_size"])
     total_steps, episode_rewards, episode_success = 0, [], []
+    best_state, best_val_reward = copy.deepcopy(online.state_dict()), -1e9
 
     for ep in range(cfg["episodes"]):
         frac = min(1.0, ep / cfg["eps_decay_episodes"])
@@ -90,15 +93,34 @@ def train_dqn_v3(env, cfg=CONFIG, verbose=True):
         if verbose and (ep + 1) % 250 == 0:
             print(f"episode {ep+1:5d}  eps={eps:.2f}  avg reward={np.mean(episode_rewards[-250:]):7.1f}  "
                   f"success={np.mean(episode_success[-250:]):.0%}  (last 250 episodes)")
+        if val_env is not None and (ep + 1) >= cfg["eps_decay_episodes"] and (ep + 1) % 500 == 0:
+            online.eval()
+            val_res = evaluate_policy(dqn_policy_v3(online), val_env, episodes=500, name="DQN v3", seed_offset=VAL_SEED_OFFSET)
+            if val_res["avg_reward"] > best_val_reward:
+                best_val_reward = val_res["avg_reward"]
+                best_state = copy.deepcopy(online.state_dict())
+            online.train()
+
+    if val_env is not None and best_val_reward > -1e8:
+        online.load_state_dict(best_state)
+    online.eval()
     return online, episode_rewards
 
 
 def dqn_policy_v3(net):
-    """Greedy policy (no exploration) used for evaluation."""
+    """Greedy policy (no exploration) used for evaluation with shared safe_argmax filter."""
+    tracker = {"prev_pos": None}
+
     def act(env):
+        if env.steps == 0:
+            tracker["prev_pos"] = None
         with torch.no_grad():
             state = features_v3(env._obs(), env)
-            return int(net(torch.tensor(state).unsqueeze(0)).argmax(1))
+            q_vals = net(torch.tensor(state).unsqueeze(0)).squeeze(0).numpy()
+        best_a = safe_argmax(q_vals, env, tracker["prev_pos"])
+        tracker["prev_pos"] = env.pos
+        return best_a
+
     return act
 
 
@@ -107,12 +129,13 @@ if __name__ == "__main__":
     RESULT_DIR = BASE_DIR / "dqn" / "result"
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     orders = load_orders(BASE_DIR / "data" / "dataset_clean.csv")
-    train_orders, test_orders = split_orders(orders)
-    train_env = DeliveryEnv(train_orders)
-    test_env = DeliveryEnv(test_orders)
+    train_orders, val_orders, test_orders, train_max_km = split_orders_single_3way(orders)
+    train_env = DeliveryEnv(train_orders, max_km=train_max_km)
+    val_env = DeliveryEnv(val_orders, max_km=train_max_km)
+    test_env = DeliveryEnv(test_orders, max_km=train_max_km)
     train_env.rng = np.random.default_rng(SEED)
 
-    net, rewards = train_dqn_v3(train_env)
+    net, rewards = train_dqn_v3(train_env, val_env=val_env)
 
     pd.Series(rewards).rolling(100).mean().plot()
     plt.xlabel("Training episode"); plt.ylabel("Reward (100-episode average)")

@@ -8,14 +8,14 @@ An end-to-end Reinforcement Learning system optimizing urban food delivery route
 
 | Module / Folder | Algorithm | Methodology | Part A (Model Selection & Iteration) | Part B (Optimization, Regularization & Ensemble) |
 | :--- | :--- | :--- | :--- | :--- |
-| **`q_learning/`** | **1. Tabular Q-Learning** | Model-Free Tabular TD(0) | Raw 40k Discrete States (`v1`, 5.2% success) $\rightarrow$ Refined Relative + Hotspot States (`v2`, 86.4% success on same map) | LR ($\alpha$), Discount ($\gamma$), & L2 Q-Table Regularization (`weight_decay`) $\rightarrow$ **92.4% delivered (same map, 80/20 split, 1 seed)** / **57.8% ± 14.0% delivered (unseen map, 64/16/20 split, 5 seeds in `compare/part_a_comparison.py`)** |
-| **`dqn/`** | **2. Deep Q-Network (DQN)** | Value-Based Deep RL (MLP + Replay + Target Net) | `v1` Raw 8D (7.2%) $\rightarrow$ `v2` +Direction & Scaling (**100%**) $\rightarrow$ `v3` +Hotspot Radar (98.8%) | Hyperparameter search (Double-Q update), Missing-Data Handling Study, & Stress Testing across 4 extreme scenarios (`dqn_dynamic/` adds a dynamic-traffic v4 extension) |
+| **`q_learning/`** | **1. Tabular Q-Learning** | Model-Free Tabular TD(0) | Raw 40k Discrete States (`v1`, 15.6% success) $\rightarrow$ Refined Relative + Hotspot States (`v2`, 73.8% success) | Validation search over LR ($\alpha$), Discount ($\gamma$), & L2 Q-Table Regularization (`weight_decay=1e-3`) $\rightarrow$ **92.8% delivered (same map, 64/16/20 split)** / **72.0% delivered (unseen map 202)** |
+| **`dqn/`** | **2. Deep Q-Network (DQN)** | Value-Based Deep RL (MLP + Replay + Target Net) | `v1` Raw 8D (23.0%) $\rightarrow$ `v2` +Direction & Scaling (**100%**, 29.09 reward) $\rightarrow$ `v3` +Hotspot Radar (**100%**, 30.02 reward) | Validation hyperparameter search (Double-Q update), Missing-Data Handling Study, & Stress Testing across 4 extreme scenarios |
 | **`d3qn/`** | **3. Dueling Double DQN (D3QN)** | Dual-Stream Value $V(s)$ + Advantage $A(s,a)$ & Double Q-Update | Controlled 4-way DQN-family comparison (`DQN`, `Double DQN`, `Dueling DQN`, `D3QN` in `compare/part_a_comparison.py` & `d3qn/ladder_multi.py`) | Multi-order (`env_multi.py`, 1–3 customers, 70/15/15 split): Validation Random Search, 5-Seed Ensemble with Paired Bootstrap 95% CIs, One-at-a-Time Ablation, 10-Rule Sensitivity, Calibrated Clock & Grid-Size Scalability |
-| **`evaluate.py` & `app.py`** | **Ensembles & Streamlit Prototype** | Standardized Q-Value Fusion | Automated 8-metric single-order & multi-order benchmarks against `Random`, `Greedy`, and `Dijkstra Planner` | Single-order 3-family ensemble (`QL + DQN + D3QN`), Multi-order 5-seed `D3QN` ensemble, & 3-Page **Streamlit Prototype UI** (`app.py`, `pages/2_Multi_Order_D3QN.py`, `pages/3_Data_and_Experiments.py`) |
+| **`evaluate.py` & `app.py`** | **Ensembles & Streamlit Prototype** | Standardized Q-Value Fusion | Automated 8-metric single-order & multi-order benchmarks against `Random`, `Greedy`, and `Dijkstra Planner` | Single-order 3-family ensemble (`QL + DQN + D3QN`, **30.76 reward**), Multi-order 5-seed `D3QN` ensemble, & 3-Page **Streamlit Prototype UI** (`app.py`, `pages/2_Multi_Order_D3QN.py`, `pages/3_Data_and_Experiments.py`) |
 
-> **Note on the two Q-Learning delivery rates (`92.4%` vs. `57.8%`):**
-> - **`92.4%` (Same Map, `q_learning/q_learning_pipeline.py`):** Trained and evaluated on the same fixed hotspot map (`map_seed=0`) using the historical 80/20 split (1 training seed).
-> - **`57.8% ± 14.0%` (Unseen Map, `compare/part_a_comparison.py`):** Trained on `map_seed=0` (60,000 steps, 64/16/20 split, 5 seeds) and evaluated on an unseen test hotspot map (`map_seed=202`).
+> **Note on Tabular Q-Learning on Seen vs. Unseen Maps (`92.8%` vs. `72.0%` / `57.8%`):**
+> - **`92.8%` (Seen Map `map_seed=0`, `q_learning/q_learning_pipeline.py`):** Trained on `map_seed=0` (64/16/20 split, validation-selected L2 `weight_decay=1e-3`) and evaluated on the same fixed hotspot map (`map_seed=0`).
+> - **`72.0%` (`evaluate_unseen_map.py`) / `57.8% ± 14.0%` (`compare/part_a_comparison.py`, 5 seeds, 60k steps):** When evaluated on an unseen test hotspot map (`map_seed=202`), Tabular Q-Learning drops sharply because new hotspot coordinates produce discrete state tuples rarely visited during training, whereas neural `D3QN` maintains **100.0% delivery (`30.65` reward)** on unseen `map_seed=202`.
 >
 > **Note on Single-Order vs. Multi-Order DQN-Family Results:**
 > - On **Single-Order (`compare/part_a_comparison.py`, 5 seeds)**, `DQN` (`99.8%` delivered, `57.5%` on-time proxy), `Double DQN` (`100.0%`, `56.6%`), `Dueling DQN` (`100.0%`, `57.7%`), and `D3QN` (`100.0%`, `57.6%`) are statistically tied (mean rewards `32.1–32.7`).
@@ -50,14 +50,14 @@ An end-to-end Reinforcement Learning system optimizing urban food delivery route
 ├── q_learning/                        # Algorithm 1: Tabular Q-Learning
 │   ├── q_learning_pipeline.py         # Single-order Part A (v1 vs v2 states) + Part B (L2 reg & tuning)
 │   └── result/                        # Saved Q-table (.pkl), curves (.png) & tuning CSVs
-├── dqn/                               # Algorithm 2: Deep Q-Network (Historical Single-Order v1-v3 + Split Helpers)
+├── dqn/                               # Algorithm 2: Deep Q-Network (Part A v1-v3 + Part B Refinement)
 │   ├── dqn_v1.py                      # Iteration 1: Raw 8D coordinates
 │   ├── dqn_v2.py                      # Iteration 2: +Relative displacement & reward scaling
 │   ├── dqn_v3.py                      # Iteration 3: +4 neighboring hotspot sensors (15D)
+│   ├── part_b_refine.py               # Part B: Double-Q search, DQN ensemble & 4-scenario stress test
 │   ├── experiments.py                 # 64/16/20 3-way split, SHA-256 manifest & distance scale helpers
 │   ├── learning_demo.py               # Interactive in-app teaching animation for Tab 1 of app.py
 │   └── result/                        # Saved weights (.pt), curves (.png) & Part B CSVs
-├── dqn_dynamic/                       # Extension: Dynamic-Traffic Standard DQN (v4), successive halving & 24 unit tests
 ├── exploration/
 │   └── zomato_exploration/            # 16 EDA distributions, correlations & dataset report
 ├── result/
@@ -119,17 +119,17 @@ python d3qn/error_analysis_multi.py              # Regret breakdown by customer 
 python d3qn/timing_multi.py                      # Per-decision CPU latency
 python d3qn/split_study_multi.py --seeds 3       # Split-ratio & split-seed sensitivity
 
-# 5. Historical Single-Order Pipelines, Unseen-Map Check & Unit Tests
+# 5. Single-Order Pipelines, Unseen-Map Check & Unit Tests
 python q_learning/q_learning_pipeline.py
 python dqn/dqn_v1.py
 python dqn/dqn_v2.py
 python dqn/dqn_v3.py
+python dqn/part_b_refine.py
 python d3qn/d3qn_pipeline.py
 python evaluate.py
 python evaluate_unseen_map.py
 python analyze_errors.py
 python -B -m unittest tests.test_core -v
-python -B -m unittest dqn_dynamic.test_v4
 
 # 6. Launch Interactive 3-Page Streamlit Dashboard
 streamlit run app.py

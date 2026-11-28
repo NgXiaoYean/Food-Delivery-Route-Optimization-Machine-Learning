@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from shared import evaluate_policy, split_orders
+from shared import evaluate_policy, safe_argmax, split_orders_single_3way
 from env import DeliveryEnv, load_orders
 
 RESULT_DIR = Path("./dqn/result")
@@ -23,11 +23,12 @@ SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
+torch.set_num_threads(1)
 
 # All tunable settings in one place -> Part B can search over these automatically.
 CONFIG = dict(
     episodes=3000,            # number of training deliveries
-    gamma=0.99,               # discount: how much future reward matters
+    gamma=0.95,               # discount: how much future reward matters
     lr=1e-3,                  # learning rate of the optimiser
     batch_size=64,            # transitions sampled from replay per update
     buffer_size=50_000,       # replay memory capacity
@@ -129,18 +130,26 @@ def train_dqn(env, cfg=CONFIG, verbose=True):
 
 
 def dqn_policy(net):
-    """Greedy policy (no exploration) used for evaluation."""
+    """Greedy policy (no exploration) used for evaluation with shared safe_argmax filter."""
+    tracker = {"prev_pos": None}
+
     def act(env):
+        if env.steps == 0:
+            tracker["prev_pos"] = None
         with torch.no_grad():
-            return int(net(torch.tensor(env._obs()).unsqueeze(0)).argmax(1))
+            q_vals = net(torch.tensor(env._obs()).unsqueeze(0)).squeeze(0).numpy()
+        best_a = safe_argmax(q_vals, env, tracker["prev_pos"])
+        tracker["prev_pos"] = env.pos
+        return best_a
+
     return act
 
 
 if __name__ == "__main__":
     orders = load_orders("./data/dataset_clean.csv")
-    train_orders, test_orders = split_orders(orders)  # 80% train / 20% test
-    train_env = DeliveryEnv(train_orders)
-    test_env = DeliveryEnv(test_orders)
+    train_orders, val_orders, test_orders, train_max_km = split_orders_single_3way(orders)
+    train_env = DeliveryEnv(train_orders, max_km=train_max_km)
+    test_env = DeliveryEnv(test_orders, max_km=train_max_km)
     train_env.rng = np.random.default_rng(SEED)  # reproducible training orders
 
     net, rewards = train_dqn(train_env)
@@ -153,7 +162,7 @@ if __name__ == "__main__":
     plt.savefig(RESULT_DIR / "dqn_learning_curve_v1.png", dpi=150, bbox_inches="tight")
 
     # Final evaluation on UNSEEN test orders, same seeds as all other agents
-    result = evaluate_policy(dqn_policy(net), test_env, episodes=500, name="DQN")
+    result = evaluate_policy(dqn_policy(net), test_env, episodes=500, name="DQN v1")
     print(result)
     pd.DataFrame([result]).to_csv(RESULT_DIR / "dqn_results_v1.csv", index=False)
     torch.save(net.state_dict(), RESULT_DIR / "dqn_model_v1.pt")

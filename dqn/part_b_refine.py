@@ -1,16 +1,13 @@
 """
-Part B – Refining and Optimising the DQN System.
+Part B – Refining and Optimising the Single-Order DQN System.
 
-Current CLI: standard-DQN tuning across seeds, validation-only selection,
-deadline/reward ablations, dynamic traffic and held-out scenario evaluation.
-See dqn/README_V4.md for commands, simulator assumptions and reporting limits.
+Covers:
+  - Part B.1 & B.4: Automated hyperparameter & Double-DQN search on the 16% validation split
+  - Part B.2: Combining models (DQN v2 + DQN v3 + Tuned Double DQN ensemble)
+  - Part B.3: Robustness & situation stress testing across 4 extreme scenarios
 
-Historical v2/v3 helpers are retained below for reference. The command-line
-entry point now runs the isolated v4 standard-DQN protocol, with separate
-validation/test partitions and new output directories. Historical artifacts
-are not overwritten. Use --smoke for a small validation-only integration run.
-
-Run from project root:  python -B dqn_dynamic/part_b_refine.py --help
+Run from project root:
+    python dqn/part_b_refine.py
 """
 import random
 import sys
@@ -20,13 +17,6 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-# Dispatch before importing historical helpers: importing evaluate.py creates
-# shared output directories, which the isolated v4 CLI does not need.
-if __name__ == "__main__":
-    from dqn_dynamic.run_experiments import main
-    main()
-    raise SystemExit(0)
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -34,21 +24,17 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from dqn.dqn_v2 import QNetwork, ReplayBuffer, SEED, features as features_v2
-from dqn.dqn_v3 import OBS_DIM_V3, features_v3, dqn_policy_v3
+from dqn.dqn_v2 import QNetwork, ReplayBuffer, SEED, dqn_policy as dqn_policy_v2, features as features_v2
+from dqn.dqn_v3 import OBS_DIM_V3, dqn_policy_v3, features_v3
 from env import DeliveryEnv, load_orders
 from evaluate import greedy_policy, planner_policy
-from shared import evaluate_policy, split_orders
+from shared import VAL_SEED_OFFSET, evaluate_policy, safe_argmax, split_orders_single_3way
+
+torch.set_num_threads(1)
 
 RESULT_DIR = BASE_DIR / "dqn" / "result"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-MOVES = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-
-# ==============================================================================
-# PART B.1 & B.4: AUTOMATED HYPERPARAMETER TUNING + DOUBLE DQN
-# ==============================================================================
 
 def train_ddqn_v3(env, cfg, verbose=False):
     """Train a DQN / Double-DQN agent on the 15D hotspot-aware state space."""
@@ -91,11 +77,9 @@ def train_ddqn_v3(env, cfg, verbose=False):
                 q = online(s).gather(1, a)
                 with torch.no_grad():
                     if cfg.get("double_dqn", True):
-                        # Double DQN: online net selects action, target net evaluates value
                         best_actions = online(s2).argmax(1, keepdim=True)
                         best_next = target(s2).gather(1, best_actions)
                     else:
-                        # Standard DQN: target net both selects and evaluates (prone to overestimation)
                         best_next = target(s2).max(1, keepdim=True)[0]
                     y = r + cfg["gamma"] * best_next * (1 - d)
 
@@ -115,10 +99,10 @@ def train_ddqn_v3(env, cfg, verbose=False):
     return online, episode_rewards
 
 
-def run_hyperparameter_search(train_orders, val_orders):
-    """Automated search over candidate configurations (Part B.1 & B.4)."""
+def run_hyperparameter_search(train_orders, val_orders, train_max_km=None):
+    """Automated search over candidate configurations on the 16% validation split."""
     print("\n" + "=" * 70)
-    print("PART B.1 & B.4: AUTOMATED HYPERPARAMETER & DOUBLE-DQN SEARCH")
+    print("PART B.1 & B.4: AUTOMATED HYPERPARAMETER & DOUBLE-DQN SEARCH (VALIDATION)")
     print("=" * 70)
 
     candidates = [
@@ -137,7 +121,7 @@ def run_hyperparameter_search(train_orders, val_orders):
         reward_scale=10.0,
     )
 
-    val_env = DeliveryEnv(val_orders)
+    val_env = DeliveryEnv(val_orders, max_km=train_max_km)
     rows = []
     best_score = -1e9
     best_net = None
@@ -148,11 +132,11 @@ def run_hyperparameter_search(train_orders, val_orders):
         cfg = {**base_defaults, **cand}
         t0 = time.time()
         print(f"\n[{i}/{len(candidates)}] Training {cfg['name']}...")
-        train_env = DeliveryEnv(train_orders)
+        train_env = DeliveryEnv(train_orders, max_km=train_max_km)
         train_env.rng = np.random.default_rng(SEED)
 
         net, rewards = train_ddqn_v3(train_env, cfg, verbose=True)
-        metrics = evaluate_policy(dqn_policy_v3(net), val_env, episodes=500, name=cfg["name"])
+        metrics = evaluate_policy(dqn_policy_v3(net), val_env, episodes=500, name=cfg["name"], seed_offset=VAL_SEED_OFFSET)
         elapsed = time.time() - t0
 
         row = {
@@ -182,7 +166,6 @@ def run_hyperparameter_search(train_orders, val_orders):
     print("\n=== Hyperparameter Search Summary ===")
     print(df_tune.to_string(index=False))
 
-    # Save best tuned Double DQN model
     torch.save({
         "state_dict": best_net.state_dict(),
         "hidden": best_cfg["hidden"],
@@ -193,26 +176,12 @@ def run_hyperparameter_search(train_orders, val_orders):
     return best_net, best_cfg, best_rewards, df_tune
 
 
-# ==============================================================================
-# PART B.2: COMBINING MODELS (ENSEMBLE BLENDING)
-# ==============================================================================
-
 def make_ensemble_policy(net_v2, net_v3, net_ddqn, w_v2=0.10, w_v3=0.05, w_ddqn=0.85):
-    """
-    Part B.2: Combine multiple models to improve accuracy and reliability.
-    Blends normalized Q-values from:
-      - DQN v2 (11D global goal-direction expert, 100% delivery reliability)
-      - DQN v3 (15D local hotspot-aware model)
-      - Tuned Double DQN (15D debiased hotspot-aware model)
-    Also includes short-term tabu memory to prevent 2-step ping-pong oscillations
-    when routing around congested traffic hotspots.
-    """
-    state_tracker = {"last_pos": None, "prev_pos": None}
+    """Part B.2: Combine DQN v2, DQN v3, and Tuned Double DQN with shared safe_argmax."""
+    state_tracker = {"prev_pos": None}
 
     def act(env):
-        # Reset tracker at start of a new episode
         if env.steps == 0:
-            state_tracker["last_pos"] = None
             state_tracker["prev_pos"] = None
 
         obs = env._obs()
@@ -224,79 +193,42 @@ def make_ensemble_policy(net_v2, net_v3, net_ddqn, w_v2=0.10, w_v3=0.05, w_ddqn=
             q3 = net_v3(s_v3).squeeze(0).numpy()
             q_ddqn = net_ddqn(s_v3).squeeze(0).numpy()
 
-        # Standardize each model's Q-preferences before weighted blending
         def norm(q):
             std = np.std(q)
             return (q - np.mean(q)) / (std + 1e-6)
 
         blended_q = w_v2 * norm(q2) + w_v3 * norm(q3) + w_ddqn * norm(q_ddqn)
-
-        # Penalize out-of-bounds wall bumps and immediate 2-step backtracking
-        r, c = env.pos
-        for a, (dr, dc) in enumerate(MOVES):
-            nr, nc = r + dr, c + dc
-            if not (0 <= nr < env.n and 0 <= nc < env.n):
-                blended_q[a] -= 10.0  # never bump into map boundary
-            elif (nr, nc) == state_tracker["prev_pos"]:
-                blended_q[a] -= 1.5   # discourage ping-pong oscillation
-
-        best_action = int(np.argmax(blended_q))
+        best_action = safe_argmax(blended_q, env, state_tracker["prev_pos"])
         state_tracker["prev_pos"] = env.pos
         return best_action
 
     return act
 
 
-# ==============================================================================
-# PART B.3: ROBUSTNESS TESTING IN DIFFERENT / EXTREME SITUATIONS
-# ==============================================================================
-
-def evaluate_with_hotspots(policy_fn, env, episodes=500, name="agent"):
-    """Evaluate policy and also track average hotspot steps."""
-    base_res = evaluate_policy(policy_fn, env, episodes=episodes, name=name)
-    hot_steps = []
-    for ep in range(episodes):
-        env.reset(seed=ep)
-        done, hot = False, 0
-        while not done:
-            _, _, term, trunc, _ = env.step(policy_fn(env))
-            hot += int(env.hotspots[env.pos])
-            done = term or trunc
-        hot_steps.append(hot)
-    base_res["avg_hotspot_steps"] = float(np.mean(hot_steps))
-    return base_res
-
-
-def run_stress_tests(test_orders, policies):
-    """Part B.3: Test models across diverse and extreme environmental conditions."""
+def run_stress_tests(test_orders, policies, max_km=None):
+    """Part B.3: Test models across 4 diverse and extreme environmental conditions."""
     print("\n" + "=" * 70)
     print("PART B.3: ROBUSTNESS & SITUATION STRESS TESTING")
     print("=" * 70)
 
-    # Create 4 distinct scenario environments
     scenarios = {}
+    scenarios["1. Normal Test Orders"] = DeliveryEnv(test_orders, hotspot_frac=0.15, max_km=max_km)
 
-    # 1. Standard unseen test set
-    scenarios["1. Normal Test Orders"] = DeliveryEnv(test_orders, hotspot_frac=0.15)
-
-    # 2. Rush-hour gridlock (100% Jam traffic)
     jam_orders = test_orders.copy()
     jam_orders["traffic"] = 3
-    scenarios["2. Rush Hour (100% Jam)"] = DeliveryEnv(jam_orders, hotspot_frac=0.15)
+    scenarios["2. Rush Hour (100% Jam)"] = DeliveryEnv(jam_orders, hotspot_frac=0.15, max_km=max_km)
 
-    # 3. Severe Stormy Weather (100% Stormy)
     storm_orders = test_orders.copy()
     storm_orders["weather"] = 3
-    scenarios["3. Severe Weather (Stormy)"] = DeliveryEnv(storm_orders, hotspot_frac=0.15)
+    scenarios["3. Severe Weather (Stormy)"] = DeliveryEnv(storm_orders, hotspot_frac=0.15, max_km=max_km)
 
-    # 4. High-Density Congested Map (30% of city cells are hotspots)
-    scenarios["4. Congested Map (30% Hotspots)"] = DeliveryEnv(test_orders, hotspot_frac=0.30)
+    scenarios["4. Congested Map (30% Hotspots)"] = DeliveryEnv(test_orders, hotspot_frac=0.30, max_km=max_km)
 
     rows = []
     for scen_name, env in scenarios.items():
         print(f"\n--- Scenario: {scen_name} ---")
         for agent_name, policy_fn in policies.items():
-            res = evaluate_with_hotspots(policy_fn, env, episodes=300, name=agent_name)
+            res = evaluate_policy(policy_fn, env, episodes=300, name=agent_name)
             res["scenario"] = scen_name
             rows.append(res)
             print(f"  {agent_name:<18} | Success: {res['success_rate']:6.1%} | Reward: {res['avg_reward']:6.2f} | "
@@ -308,19 +240,17 @@ def run_stress_tests(test_orders, policies):
 
 
 def plot_part_b_results(df_tune, df_ensemble, df_stress):
-    """Create a comprehensive 3-panel visualization for Part B report."""
+    """Create a 3-panel visualization for Part B report."""
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    # Panel 1: Hyperparameter & Double DQN Search
     short_labels = [f"C{i+1}" for i in range(len(df_tune))]
     bars = axes[0].bar(short_labels, df_tune["avg_reward"], color=["#ff7f0e", "#1f77b4", "#2ca02c", "#d62728"][:len(df_tune)])
-    axes[0].set_title("Part B.1: Hyperparameter & DDQN Search\n(Avg Test Reward)")
+    axes[0].set_title("Part B.1: Hyperparameter & DDQN Search\n(Avg Validation Reward)")
     axes[0].set_ylabel("Average Reward")
     axes[0].grid(axis="y", linestyle="--", alpha=0.4)
     for bar, val in zip(bars, df_tune["avg_reward"]):
         axes[0].text(bar.get_x() + bar.get_width() / 2, val + 0.3, f"{val:.1f}", ha="center", fontsize=9, fontweight="bold")
 
-    # Panel 2: Model Combination (Single Models vs Ensemble)
     bars2 = axes[1].bar(df_ensemble["agent"], df_ensemble["avg_reward"],
                         color=["#7f7f7f", "#ff7f0e", "#1f77b4", "#9467bd", "#2ca02c", "#d62728"][:len(df_ensemble)])
     axes[1].set_title("Part B.2: Individual Models vs Ensemble\n(500 Unseen Test Orders)")
@@ -330,7 +260,6 @@ def plot_part_b_results(df_tune, df_ensemble, df_stress):
     for bar, val in zip(bars2, df_ensemble["avg_reward"]):
         axes[1].text(bar.get_x() + bar.get_width() / 2, val + 0.3, f"{val:.2f}", ha="center", fontsize=9, fontweight="bold")
 
-    # Panel 3: Robustness Across Scenarios
     pivot = df_stress.pivot(index="scenario", columns="agent", values="avg_reward")
     cols_order = [c for c in ["Greedy", "DQN v2", "DQN v3", "Tuned DDQN", "Ensemble DQN", "Planner"] if c in pivot.columns]
     pivot[cols_order].plot(kind="bar", ax=axes[2])
@@ -346,3 +275,30 @@ def plot_part_b_results(df_tune, df_ensemble, df_stress):
     plt.savefig(out_path, dpi=180, bbox_inches="tight")
     plt.close()
     print(f"\nSaved Part B visual summary chart to: {out_path}")
+
+
+if __name__ == "__main__":
+    orders = load_orders(BASE_DIR / "data" / "dataset_clean.csv")
+    train_orders, val_orders, test_orders, train_max_km = split_orders_single_3way(orders)
+    best_net, _, _, df_tune = run_hyperparameter_search(train_orders, val_orders, train_max_km)
+
+    v2 = QNetwork()
+    v2.load_state_dict(torch.load(RESULT_DIR / "dqn_model_v2.pt", map_location="cpu", weights_only=True))
+    v2.eval()
+    v3 = QNetwork(obs_dim=OBS_DIM_V3)
+    v3.load_state_dict(torch.load(RESULT_DIR / "dqn_model_v3.pt", map_location="cpu", weights_only=True))
+    v3.eval()
+
+    test_env = DeliveryEnv(test_orders, max_km=train_max_km)
+    policies = {
+        "Greedy": greedy_policy,
+        "DQN v2": dqn_policy_v2(v2),
+        "DQN v3": dqn_policy_v3(v3),
+        "Tuned DDQN": dqn_policy_v3(best_net),
+        "Ensemble DQN": make_ensemble_policy(v2, v3, best_net),
+        "Planner": planner_policy,
+    }
+    df_ens = pd.DataFrame([evaluate_policy(p, test_env, 500, n) for n, p in policies.items()])
+    df_ens.to_csv(RESULT_DIR / "part_b_ensemble_results.csv", index=False)
+    df_str = run_stress_tests(test_orders, policies, max_km=train_max_km)
+    plot_part_b_results(df_tune, df_ens, df_str)

@@ -15,7 +15,7 @@ from dqn.dqn_v2 import QNetwork, dqn_policy as dqn_policy_v2
 from dqn.dqn_v3 import OBS_DIM_V3, dqn_policy_v3
 from env import DeliveryEnv, load_orders
 from evaluate import greedy_policy, make_cross_algorithm_ensemble, planner_policy
-from shared import split_orders
+from shared import split_orders_single_3way
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "dataset_clean.csv"
@@ -66,8 +66,8 @@ def run_episodes(policy_fn, env, episodes: int = 500) -> pd.DataFrame:
 if __name__ == "__main__":
     try:
         orders = load_orders(DATA_PATH)
-        _, test_orders = split_orders(orders)
-        env = DeliveryEnv(test_orders)
+        _, _, test_orders, train_max_km = split_orders_single_3way(orders)
+        env = DeliveryEnv(test_orders, max_km=train_max_km)
     except Exception as exc:
         print(f"[ERROR] Could not load test dataset: {exc}")
         sys.exit(1)

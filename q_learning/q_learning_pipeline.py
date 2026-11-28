@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 
 from env import DeliveryEnv, load_orders
-from shared import evaluate_policy, split_orders
+from shared import VAL_SEED_OFFSET, evaluate_policy, safe_argmax, split_orders_single_3way
 
 RESULT_DIR = BASE_DIR / "q_learning" / "result"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -168,16 +168,7 @@ def make_ql_policy(agent: TabularQLearningAgent):
         state = agent.extract_state(env)
         q_vals = agent.q_table[state].copy()
 
-        if agent.state_mode == "refined":
-            r, c = env.pos
-            for a, (mr, mc) in enumerate(MOVES):
-                nr, nc = r + mr, c + mc
-                if not (0 <= nr < env.n and 0 <= nc < env.n):
-                    q_vals[a] -= 100.0
-                elif (nr, nc) == tracker["prev_pos"]:
-                    q_vals[a] -= 2.0
-
-        best_action = int(np.argmax(q_vals))
+        best_action = safe_argmax(q_vals, env, tracker["prev_pos"])
         tracker["prev_pos"] = env.pos
         return best_action
 
@@ -235,8 +226,9 @@ def main():
             raise FileNotFoundError(f"Cleaned dataset missing at {data_path}. Run `python clean_data.py` first.")
 
         orders = load_orders(data_path)
-        train_orders, test_orders = split_orders(orders)
-        test_env = DeliveryEnv(test_orders)
+        train_orders, val_orders, test_orders, train_max_km = split_orders_single_3way(orders)
+        val_env = DeliveryEnv(val_orders, max_km=train_max_km)
+        test_env = DeliveryEnv(test_orders, max_km=train_max_km)
     except Exception as exc:
         print(f"[ERROR] Failed to initialize Q-Learning pipeline: {exc}")
         sys.exit(1)
@@ -269,11 +261,11 @@ def main():
     )
 
     print("\n[Part A - v1] Training Raw Discrete Q-Learning...")
-    agent_v1, rew_v1 = train_q_agent(DeliveryEnv(train_orders), cfg_v1, verbose=True)
+    agent_v1, rew_v1 = train_q_agent(DeliveryEnv(train_orders, max_km=train_max_km), cfg_v1, verbose=True)
     res_v1 = evaluate_policy(make_ql_policy(agent_v1), test_env, episodes=500, name="Q-Learning v1 (Raw)")
 
     print("\n[Part A - v2] Training Refined Relative+Hotspot Q-Learning...")
-    agent_v2, rew_v2 = train_q_agent(DeliveryEnv(train_orders), cfg_v2, verbose=True)
+    agent_v2, rew_v2 = train_q_agent(DeliveryEnv(train_orders, max_km=train_max_km), cfg_v2, verbose=True)
     res_v2 = evaluate_policy(make_ql_policy(agent_v2), test_env, episodes=500, name="Q-Learning v2 (Refined)")
 
     df_part_a = pd.DataFrame([res_v1, res_v2])
@@ -310,7 +302,8 @@ def main():
 
     tune_rows = []
     best_agent = agent_v2
-    best_reward = res_v2["avg_reward"]
+    val_v2 = evaluate_policy(make_ql_policy(agent_v2), val_env, episodes=500, name="Q-Learning v2 (Refined)", seed_offset=VAL_SEED_OFFSET)
+    best_val_reward = val_v2["avg_reward"]
 
     for idx, cand in enumerate(search_grid, 1):
         full_cfg = {
@@ -320,8 +313,9 @@ def main():
             **cand,
         }
         t0 = time.time()
-        ag, _ = train_q_agent(DeliveryEnv(train_orders), full_cfg, verbose=False)
-        metrics = evaluate_policy(make_ql_policy(ag), test_env, episodes=500, name=cand["label"])
+        ag, _ = train_q_agent(DeliveryEnv(train_orders, max_km=train_max_km), full_cfg, verbose=False)
+        # Select strictly on the 16% VALIDATION split (seeds 1000..1499)
+        metrics = evaluate_policy(make_ql_policy(ag), val_env, episodes=500, name=cand["label"], seed_offset=VAL_SEED_OFFSET)
         elapsed = round(time.time() - t0, 2)
 
         tune_rows.append({
@@ -332,17 +326,19 @@ def main():
             **{k: v for k, v in metrics.items() if k != "agent"},
             "train_time_s": elapsed,
         })
-        print(f"  [{idx}/4] {cand['label']:<36} | Success: {metrics['success_rate']:.1%} | "
-              f"Reward: {metrics['avg_reward']:6.2f} | Hotspots: {metrics['avg_hotspot_steps']:.2f}")
+        print(f"  [{idx}/4] {cand['label']:<36} | Val Success: {metrics['success_rate']:.1%} | "
+              f"Val Reward: {metrics['avg_reward']:6.2f} | Hotspots: {metrics['avg_hotspot_steps']:.2f}")
 
-        if metrics["avg_reward"] > best_reward:
-            best_reward = metrics["avg_reward"]
+        if metrics["avg_reward"] > best_val_reward:
+            best_val_reward = metrics["avg_reward"]
             best_agent = ag
 
     df_tune = pd.DataFrame(tune_rows)
     df_tune.to_csv(RESULT_DIR / "ql_part_b_tuning.csv", index=False)
     best_agent.save(RESULT_DIR / "ql_model_best.pkl")
-    print(f"\nSaved best Tabular Q-Learning model (Avg Reward={best_reward:.2f}) -> {RESULT_DIR / 'ql_model_best.pkl'}")
+    test_best = evaluate_policy(make_ql_policy(best_agent), test_env, episodes=500, name="Q-Learning (Tuned)")
+    print(f"\nSaved best Tabular Q-Learning model (Val Reward={best_val_reward:.2f} | Test Reward={test_best['avg_reward']:.2f}, "
+          f"Test Success={test_best['success_rate']:.1%}) -> {RESULT_DIR / 'ql_model_best.pkl'}")
 
 
 if __name__ == "__main__":
